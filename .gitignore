@@ -1,0 +1,10 @@
+node_modules/
+dist/
+tsconfig.tsbuildinfo
+
+# local test log files
+*.log
+*.txt
+
+# OS
+.DS_Store
