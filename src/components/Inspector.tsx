@@ -202,20 +202,22 @@ function SourceTab({ node }: { node: CallNode }) {
   return (
     <div className="src">
       <div className="srchead">📄 {data.path}<span className="repo">⎇ connected repo</span></div>
-      {lines.map((l, i) => {
-        const n = i + 1;
-        const isHot = n === hot;
-        return (
-          <div
-            key={i}
-            className={`codeln ${isHot ? "hl" : ""}`}
-            ref={isHot ? (el) => el?.scrollIntoView({ block: "center" }) : undefined}
-          >
-            <span className="ln">{n}</span>
-            <pre>{l || " "}</pre>
-          </div>
-        );
-      })}
+      <div className="src-lines">
+        {lines.map((l, i) => {
+          const n = i + 1;
+          const isHot = n === hot;
+          return (
+            <div
+              key={i}
+              className={`codeln ${isHot ? "hl" : ""}`}
+              ref={isHot ? (el) => el?.scrollIntoView({ block: "center" }) : undefined}
+            >
+              <span className="ln">{n}</span>
+              <pre>{l || " "}</pre>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
