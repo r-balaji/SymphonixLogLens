@@ -28,8 +28,11 @@ export async function sparseClone(
       { timeout: 120_000 },
     );
 
-    // Step 2: pull only the classes/ folders (SFDX keeps Apex in **/classes/*.cls).
-    // This avoids downloading LWC, static resources, XML metadata, etc.
+    // Step 2: pull only classes/ folders in no-cone mode (supports glob patterns).
+    // no-cone mode is needed because older git versions reject wildcards in cone mode.
+    await execAsync(`git -C ${shellQuote(tmpDir)} sparse-checkout init --no-cone`, {
+      timeout: 30_000,
+    });
     await execAsync(`git -C ${shellQuote(tmpDir)} sparse-checkout set "**/classes/*.cls"`, {
       timeout: 60_000,
     });
