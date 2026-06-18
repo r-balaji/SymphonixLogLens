@@ -30,7 +30,7 @@ export async function sparseClone(
 
     // Step 2: pull only the classes/ folders (SFDX keeps Apex in **/classes/*.cls).
     // This avoids downloading LWC, static resources, XML metadata, etc.
-    await execAsync(`git -C ${shellQuote(tmpDir)} sparse-checkout set "/**/classes/*.cls"`, {
+    await execAsync(`git -C ${shellQuote(tmpDir)} sparse-checkout set "**/classes/*.cls"`, {
       timeout: 60_000,
     });
 
