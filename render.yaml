@@ -3,7 +3,5 @@ services:
     name: logplaybook
     runtime: node
     buildCommand: npm ci && npm run build
-    startCommand: NODE_ENV=production npm start
-    envVars: []
+    startCommand: npm start
     # Render injects PORT automatically; no need to set it here.
-    # NODE_ENV is set only at start time so devDependencies are available during build.
