@@ -41,6 +41,9 @@ input{font-family:inherit}
 .dropzone{height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;text-align:center}
 .dropzone .big{font-family:var(--disp);font-size:24px}
 .dropzone .sub{color:var(--dim)}
+.landing-points{list-style:none;display:flex;flex-direction:column;gap:10px;text-align:left;max-width:520px;color:var(--dim);font-size:13px;line-height:1.5}
+.landing-points li::before{content:"→ ";color:var(--cls)}
+.landing-points b{color:var(--text);font-weight:500}
 .dropzone.drag{outline:2px dashed var(--mth);outline-offset:-20px}
 .filepick{color:var(--cls);cursor:pointer;text-decoration:underline}
 .err{color:var(--ember)}

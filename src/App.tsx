@@ -267,6 +267,13 @@ export function App() {
           onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
         >
           <div className="big">Drop a Salesforce FINEST debug log</div>
+          <ul className="landing-points">
+            <li>Turns any FINEST debug log into a clickable <b>call tree</b> with timing and values</li>
+            <li>Marks managed-package calls as <b>black boxes</b> — honest about what Salesforce hides</li>
+            <li><b>Hide noise</b> (e.g. clcommon) or <b>focus</b> on one class to cut through large traces</li>
+            <li><b>Track any variable</b> across the entire run to see exactly where a value went wrong</li>
+            <li>Load <b>multiple logs</b> side-by-side — Failed / Slow / OK badges at a glance</li>
+          </ul>
           <div className="sub">
             or{" "}
             <label className="filepick">
