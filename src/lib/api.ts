@@ -16,13 +16,16 @@ export async function parseLogFile(
   return res.json();
 }
 
-export async function connectRepo(
-  path: string,
-): Promise<{ ok: true; classCount: number; root: string }> {
+export async function connectRepo(opts: {
+  url?: string;
+  token?: string;
+  branch?: string;
+  path?: string;
+}): Promise<{ ok: true; classCount: number; root: string; branch?: string }> {
   const res = await fetch("/api/repo", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ path }),
+    body: JSON.stringify(opts),
   });
   if (!res.ok) throw new Error((await res.json()).error ?? "Repo connect failed");
   return res.json();

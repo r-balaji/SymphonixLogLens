@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { parseLog } from "../shared/parser.js";
 import type { CallNode, ParseResult } from "../shared/types.js";
 import { RepoIndex } from "./repo.js";
+import { sparseClone, removeTmpDir } from "./git-clone.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const DIST = path.resolve(__dirname, "../dist");
@@ -23,6 +24,7 @@ const upload = multer({
 
 // One repo index per server process (single-user local tool).
 let repoIndex: RepoIndex | null = null;
+let repoTmpDir: string | null = null; // temp dir from last sparse clone, if any
 
 /** Walk the tree and attach sourceFile to each home-namespace node we can resolve. */
 function enrichWithSource(node: CallNode, home: string): void {
@@ -67,14 +69,41 @@ app.post("/api/parse", upload.single("log"), (req, res) => {
 });
 
 app.post("/api/repo", async (req, res) => {
+  // Clean up any previous sparse-clone temp dir.
+  if (repoTmpDir) {
+    await removeTmpDir(repoTmpDir);
+    repoTmpDir = null;
+  }
+  repoIndex = null;
+
   try {
-    const root = String(req.body.path ?? "").trim();
-    if (!root) return res.status(400).json({ error: "Provide a repo path." });
-    repoIndex = new RepoIndex(root);
-    const info = await repoIndex.build();
-    res.json({ ok: true, ...info });
+    const url = String(req.body.url ?? "").trim();
+    const token = String(req.body.token ?? "").trim();
+    const branch = String(req.body.branch ?? "main").trim() || "main";
+    const localPath = String(req.body.path ?? "").trim();
+
+    let root: string;
+
+    if (url) {
+      // GitHub URL + PAT: sparse-clone only .cls files into a temp dir.
+      if (!token) return res.status(400).json({ error: "A Personal Access Token is required for GitHub repos." });
+      const { tmpDir, classCount } = await sparseClone(url, token, branch);
+      repoTmpDir = tmpDir;
+      repoIndex = new RepoIndex(tmpDir);
+      await repoIndex.build();
+      return res.json({ ok: true, classCount, root: url, branch });
+    } else if (localPath) {
+      // Local path (dev / localhost only).
+      root = localPath;
+      repoIndex = new RepoIndex(root);
+      const info = await repoIndex.build();
+      return res.json({ ok: true, ...info });
+    } else {
+      return res.status(400).json({ error: "Provide a GitHub repo URL or a local path." });
+    }
   } catch (err) {
     repoIndex = null;
+    repoTmpDir = null;
     res.status(400).json({ error: (err as Error).message });
   }
 });

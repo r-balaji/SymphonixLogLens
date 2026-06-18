@@ -64,7 +64,9 @@ export function App() {
   }, [theme]);
 
   const [homeNs, setHomeNs] = useState("loan");
-  const [repoPath, setRepoPath] = useState("");
+  const [repoUrl, setRepoUrl] = useState("");
+  const [repoToken, setRepoToken] = useState("");
+  const [repoBranch, setRepoBranch] = useState("main");
   const [repoInfo, setRepoInfo] = useState<string | null>(null);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -171,12 +173,12 @@ export function App() {
   );
 
   const onConnectRepo = useCallback(async () => {
-    if (!repoPath.trim()) return;
+    if (!repoUrl.trim()) return;
     setError(null);
-    setRepoInfo("indexing…");
+    setRepoInfo("cloning…");
     try {
-      const info = await connectRepo(repoPath.trim());
-      setRepoInfo(`${info.classCount} classes`);
+      const info = await connectRepo({ url: repoUrl.trim(), token: repoToken.trim(), branch: repoBranch.trim() || "main" });
+      setRepoInfo(`${info.classCount} classes · ${info.branch ?? repoBranch}`);
       // Re-parse every loaded log so source links (sourceUrl) get attached —
       // enrichment only happens server-side during /api/parse, and the repo is
       // usually connected AFTER logs are already open.
@@ -199,7 +201,7 @@ export function App() {
       setRepoInfo("not connected");
       setError(`Repo: ${(e as Error).message}`);
     }
-  }, [repoPath, sessions, activeId, primeView]);
+  }, [repoUrl, repoToken, repoBranch, sessions, activeId, primeView]);
 
   const toggle = useCallback((id: string) => {
     setOpenIds((prev) => {
@@ -253,8 +255,9 @@ export function App() {
         <Header
           homeNs={homeNs}
           setHomeNs={setHomeNs}
-          repoPath={repoPath}
-          setRepoPath={setRepoPath}
+          repoUrl={repoUrl} setRepoUrl={setRepoUrl}
+          repoToken={repoToken} setRepoToken={setRepoToken}
+          repoBranch={repoBranch} setRepoBranch={setRepoBranch}
           repoInfo={repoInfo}
           onConnectRepo={onConnectRepo}
           theme={theme}
@@ -297,8 +300,9 @@ export function App() {
       <Header
         homeNs={homeNs}
         setHomeNs={setHomeNs}
-        repoPath={repoPath}
-        setRepoPath={setRepoPath}
+        repoUrl={repoUrl} setRepoUrl={setRepoUrl}
+        repoToken={repoToken} setRepoToken={setRepoToken}
+        repoBranch={repoBranch} setRepoBranch={setRepoBranch}
         repoInfo={repoInfo}
         onConnectRepo={onConnectRepo}
         meta={{
@@ -420,10 +424,17 @@ export function App() {
 }
 
 function Header({
-  homeNs, setHomeNs, repoPath, setRepoPath, repoInfo, onConnectRepo, meta, limits, onNew, onUpload, theme, onToggleTheme,
+  homeNs, setHomeNs,
+  repoUrl, setRepoUrl,
+  repoToken, setRepoToken,
+  repoBranch, setRepoBranch,
+  repoInfo, onConnectRepo,
+  meta, limits, onNew, onUpload, theme, onToggleTheme,
 }: {
   homeNs: string; setHomeNs: (s: string) => void;
-  repoPath: string; setRepoPath: (s: string) => void;
+  repoUrl: string; setRepoUrl: (s: string) => void;
+  repoToken: string; setRepoToken: (s: string) => void;
+  repoBranch: string; setRepoBranch: (s: string) => void;
   repoInfo: string | null; onConnectRepo: () => void;
   meta?: { name: string; sub: string };
   limits?: { key: string; used: number; max: number }[];
@@ -432,6 +443,9 @@ function Header({
   theme: Theme;
   onToggleTheme: () => void;
 }) {
+  const [repoOpen, setRepoOpen] = useState(false);
+  const connected = repoInfo && repoInfo !== "not connected" && repoInfo !== "cloning…";
+
   return (
     <header>
       <div className="logo"><span className="spark" />Symphonix <em>Log Lens</em></div>
@@ -460,8 +474,54 @@ function Header({
           {theme === "dark" ? "☀" : "☾"}
         </button>
         <input value={homeNs} onChange={(e) => setHomeNs(e.target.value)} placeholder="home ns" size={6} title="home namespace" />
-        <input value={repoPath} onChange={(e) => setRepoPath(e.target.value)} placeholder="/path/to/sfdx-repo" size={18} />
-        <button className="btn" onClick={onConnectRepo}>{repoInfo ? `repo: ${repoInfo}` : "connect repo"}</button>
+
+        {/* Repo connect — popover with URL / PAT / branch fields */}
+        <div className="repo-wrap">
+          <button
+            className={`btn ${connected ? "btn-connected" : ""}`}
+            onClick={() => setRepoOpen((o) => !o)}
+          >
+            {repoInfo === "cloning…" ? "cloning…" : connected ? `⎇ ${repoInfo}` : "connect repo"}
+          </button>
+          {repoOpen && (
+            <div className="repo-popover">
+              <div className="repo-field">
+                <label>Repo URL</label>
+                <input
+                  value={repoUrl}
+                  onChange={(e) => setRepoUrl(e.target.value)}
+                  placeholder="https://github.com/org/repo"
+                />
+              </div>
+              <div className="repo-field">
+                <label>Personal Access Token</label>
+                <input
+                  type="password"
+                  value={repoToken}
+                  onChange={(e) => setRepoToken(e.target.value)}
+                  placeholder="ghp_…"
+                />
+              </div>
+              <div className="repo-field">
+                <label>Branch / Tag <span className="repo-field-req">(required)</span></label>
+                <input
+                  value={repoBranch}
+                  onChange={(e) => setRepoBranch(e.target.value)}
+                  placeholder="main"
+                />
+              </div>
+              <button
+                className="btn btn-full"
+                disabled={!repoUrl.trim() || !repoToken.trim() || !repoBranch.trim()}
+                onClick={() => { onConnectRepo(); setRepoOpen(false); }}
+              >
+                Clone &amp; index .cls files
+              </button>
+              {repoInfo && <div className="repo-status">{repoInfo}</div>}
+            </div>
+          )}
+        </div>
+
         {onUpload && (
           <label className="btn">
             + log
