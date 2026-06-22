@@ -27,7 +27,7 @@ const repoIndexes = new Map<string, RepoIndex>();
 const repoTmpDirs = new Map<string, string>();
 
 function makeRepoId(url: string, branch: string): string {
-  return Buffer.from(`${url}::${branch}`).toString("base64url").slice(0, 12);
+  return Buffer.from(`${url}::${branch}`).toString("base64url");
 }
 
 /** Walk the tree and attach sourceFile/sourceUrl to each home-namespace node. */
