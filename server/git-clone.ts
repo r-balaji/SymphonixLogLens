@@ -49,7 +49,10 @@ export async function sparseClone(
     return { tmpDir, classCount };
   } catch (err) {
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    const msg = (err as Error).message.replace(token, "<token>");
+    // execFile puts stderr inside err.stderr — surface it so we can diagnose
+    const e = err as Error & { stderr?: string; stdout?: string };
+    const detail = e.stderr?.trim() || e.stdout?.trim() || e.message;
+    const msg = detail.replace(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"), "<token>");
     throw new Error(msg);
   }
 }
