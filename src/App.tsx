@@ -72,6 +72,7 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyFile, setBusyFile] = useState<string | null>(null);
+  const [repoCloning, setRepoCloning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
 
@@ -178,13 +179,11 @@ export function App() {
   const onConnectRepo = useCallback(async () => {
     if (!repoUrl.trim()) return;
     setError(null);
-    setRepoInfo("cloning…");
+    setRepoInfo(null);
+    setRepoCloning(true);
     try {
       const info = await connectRepo({ url: repoUrl.trim(), token: repoToken.trim(), branch: repoBranch.trim() || "main" });
       setRepoInfo(`${info.classCount} classes · ${info.branch ?? repoBranch}`);
-      // Re-parse every loaded log so source links (sourceUrl) get attached —
-      // enrichment only happens server-side during /api/parse, and the repo is
-      // usually connected AFTER logs are already open.
       if (sessions.length > 0) {
         const reparsed = await Promise.all(
           sessions.map(async (s) => {
@@ -192,7 +191,7 @@ export function App() {
               const r = await parseLogFile(s.file, s.homeNs);
               return { ...s, result: r, status: statusOf(r) };
             } catch {
-              return s; // keep the old result if re-parse fails
+              return s;
             }
           }),
         );
@@ -203,6 +202,8 @@ export function App() {
     } catch (e) {
       setRepoInfo("not connected");
       setError(`Repo: ${(e as Error).message}`);
+    } finally {
+      setRepoCloning(false);
     }
   }, [repoUrl, repoToken, repoBranch, sessions, activeId, primeView]);
 
@@ -290,6 +291,7 @@ export function App() {
           {error && <div className="err">{error}</div>}
         </div>
         {busy && <ParseOverlay fileName={busyFile} />}
+        {repoCloning && <ParseOverlay title="Connecting repository…" hint={`Sparse-cloning Apex classes from ${repoUrl} · branch: ${repoBranch}`} />}
       </div>
     );
   }
@@ -706,15 +708,23 @@ function TimelinePane({
   );
 }
 
-function ParseOverlay({ fileName }: { fileName: string | null }) {
+function ParseOverlay({
+  fileName,
+  title = "Analysing log…",
+  hint = "Building call tree · extracting values · mapping managed packages",
+}: {
+  fileName?: string | null;
+  title?: string;
+  hint?: string;
+}) {
   return (
     <div className="parse-overlay">
       <div className="parse-card">
         <div className="parse-spinner" />
-        <div className="parse-title">Analysing log…</div>
+        <div className="parse-title">{title}</div>
         {fileName && <div className="parse-file">{fileName}</div>}
         <div className="parse-bar"><div className="parse-bar-fill" /></div>
-        <div className="parse-hint">Building call tree · extracting values · mapping managed packages</div>
+        <div className="parse-hint">{hint}</div>
       </div>
     </div>
   );
