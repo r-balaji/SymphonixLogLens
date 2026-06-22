@@ -484,8 +484,8 @@ function Header({
             })}
           </div>
         )}
-        <button className="btn theme-btn" onClick={onToggleTheme} title={`switch to ${theme === "dark" ? "light" : "dark"} mode`}>
-          {theme === "dark" ? "☀" : "☾"}
+        <button className="btn theme-btn" onClick={onToggleTheme}>
+          {theme === "dark" ? "☀ Light" : "☾ Dark"}
         </button>
         <input value={homeNs} onChange={(e) => setHomeNs(e.target.value)} placeholder="home ns" size={6} title="home namespace" />
 

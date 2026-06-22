@@ -115,7 +115,7 @@ header{display:flex;align-items:center;gap:18px;padding:12px 20px;border-bottom:
 .btn.ember{border-color:rgba(255,82,99,.5);color:#FFC2C9;background:var(--ember-soft);margin-left:auto}
 .btn.ember:hover{box-shadow:0 0 14px var(--ember-glow);border-color:var(--ember)}
 .btn.on{border-color:var(--mth);color:var(--mth)}
-.theme-btn{width:32px;padding:6px 0;text-align:center;font-size:13px}
+.theme-btn{font-size:13px}
 
 /* flame strip */
 .flamewrap{padding:10px 20px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
