@@ -72,7 +72,7 @@ export function App() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyFile, setBusyFile] = useState<string | null>(null);
-  const [repoCloning, setRepoCloning] = useState(false);
+  const [repoCloning, setRepoCloning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drag, setDrag] = useState(false);
 
@@ -179,9 +179,9 @@ export function App() {
   const onConnectRepo = useCallback(async () => {
     if (!repoUrl.trim()) return;
     setError(null);
-    setRepoCloning(true);
+    const branch = repoBranch.trim() || "main";
+    setRepoCloning(`${repoUrl.trim()} · branch: ${branch}`);
     try {
-      const branch = repoBranch.trim() || "main";
       const info = await connectRepo({ url: repoUrl.trim(), token: repoToken.trim(), branch });
       setRepos((prev) => ({
         ...prev,
@@ -208,7 +208,7 @@ export function App() {
     } catch (e) {
       setError(`Repo: ${(e as Error).message}`);
     } finally {
-      setRepoCloning(false);
+      setRepoCloning(null);
     }
   }, [repoUrl, repoToken, repoBranch, sessions, activeId, primeView]);
 
@@ -302,7 +302,7 @@ export function App() {
           {error && <div className="err">{error}</div>}
         </div>
         {busy && <ParseOverlay fileName={busyFile} />}
-        {repoCloning && <ParseOverlay title="Connecting repository…" hint={`Sparse-cloning Apex classes from ${repoUrl} · branch: ${repoBranch}`} />}
+        {repoCloning && <ParseOverlay title="Connecting repository…" hint={`Sparse-cloning Apex classes from ${repoCloning}`} />}
       </div>
     );
   }
@@ -314,6 +314,7 @@ export function App() {
   return (
     <div className="app">
       {busy && <ParseOverlay fileName={busyFile} />}
+      {repoCloning && <ParseOverlay title="Connecting repository…" hint={`Sparse-cloning Apex classes from ${repoCloning}`} />}
       <Header
         homeNs={homeNs} setHomeNs={setHomeNs}
         repoUrl={repoUrl} setRepoUrl={setRepoUrl}
