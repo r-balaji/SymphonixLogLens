@@ -204,7 +204,7 @@ main.with-rail{grid-template-columns:230px minmax(380px,1fr) 6px 1fr}
 .kids{margin-left:18px;border-left:1px solid var(--line-soft);padding-left:4px}
 
 /* inspector */
-.insp{display:flex;flex-direction:column;min-height:0;background:var(--bar-bg)}
+.insp{display:flex;flex-direction:column;min-height:0;max-height:100%;overflow:hidden;background:var(--bar-bg)}
 .crumbs{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:12px 18px 6px;font-size:11px;color:var(--dim)}
 .crumbs .c{cursor:pointer;padding:2px 6px;border-radius:5px}
 .crumbs .c:hover{background:var(--panel2);color:var(--text)}
@@ -220,7 +220,7 @@ main.with-rail{grid-template-columns:230px minmax(380px,1fr) 6px 1fr}
 .tab{padding:9px 13px;font-size:11.5px;color:var(--dim);border-bottom:2px solid transparent}
 .tab.on{color:var(--text);border-color:var(--mth)}
 .tab .n{font-size:9.5px;color:var(--faint);margin-left:4px}
-.ibody{flex:1;overflow:auto;padding:16px 18px 40px}
+.ibody{flex:1;min-height:0;overflow:auto;padding:16px 18px 40px}
 
 .xcard{border:1px solid rgba(255,82,99,.4);background:linear-gradient(180deg,var(--ember-soft),rgba(255,82,99,.04));border-radius:10px;padding:13px 15px;margin-bottom:16px}
 .xcard .xtype{color:var(--ember);font-weight:600;font-size:12.5px;display:flex;gap:8px;align-items:center}
@@ -243,7 +243,7 @@ td.vv pre{margin-top:6px;background:var(--code-bg);border:1px solid var(--line-s
 td.changed{position:relative}
 .vchip{font-size:9px;padding:2px 6px;border-radius:5px;background:rgba(255,180,84,.14);color:var(--dml);margin-left:6px}
 
-.src{border:1px solid var(--line-soft);border-radius:10px;overflow:hidden;background:var(--code-bg);display:flex;flex-direction:column;max-height:60vh}
+.src{border:1px solid var(--line-soft);border-radius:10px;overflow:hidden;background:var(--code-bg);display:flex;flex-direction:column;max-height:55vh;min-height:0}
 .src-lines{overflow:auto;flex:1;min-height:0}
 .srchead{display:flex;align-items:center;gap:9px;padding:8px 13px;border-bottom:1px solid var(--line-soft);font-size:11px;color:var(--dim);flex:none}
 .srchead .repo{margin-left:auto;color:var(--faint);font-size:10px}
