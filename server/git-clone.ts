@@ -1,15 +1,14 @@
-import { exec } from "node:child_process";
+import { execFile } from "node:child_process";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
 
-const execAsync = promisify(exec);
+const execFileAsync = promisify(execFile);
 
 /**
- * Sparse-clones only **.cls files from a GitHub repo using a PAT.
- * Returns the path to the temp directory containing the cloned files.
- * Caller is responsible for cleaning up the directory when done.
+ * Sparse-clones only Apex class files from a GitHub repo using a PAT.
+ * Uses execFile (no shell) so arguments are passed directly — no quoting issues.
  */
 export async function sparseClone(
   repoUrl: string,
@@ -23,26 +22,23 @@ export async function sparseClone(
 
   try {
     // Step 1: clone without checking out any files, depth 1, sparse mode.
-    await execAsync(
-      `git clone --depth 1 --filter=blob:none --sparse --branch ${shellQuote(branch)} ${shellQuote(authedUrl)} ${shellQuote(tmpDir)}`,
-      { timeout: 120_000 },
-    );
+    await execFileAsync("git", [
+      "clone", "--depth", "1", "--filter=blob:none", "--sparse",
+      "--branch", branch, authedUrl, tmpDir,
+    ], { timeout: 120_000 });
 
-    // Step 2: pull only classes/ folders in no-cone mode (supports glob patterns).
-    // no-cone mode is needed because older git versions reject wildcards in cone mode.
-    await execAsync(`git -C ${shellQuote(tmpDir)} sparse-checkout init --no-cone`, {
+    // Step 2: switch to no-cone mode (required for glob patterns).
+    await execFileAsync("git", ["-C", tmpDir, "sparse-checkout", "init", "--no-cone"], {
       timeout: 30_000,
     });
-    await execAsync(`git -C ${shellQuote(tmpDir)} sparse-checkout set "**/classes/*.cls"`, {
+
+    // Step 3: pull only Apex class files (SFDX stores them under **/classes/).
+    await execFileAsync("git", ["-C", tmpDir, "sparse-checkout", "set", "**/classes/*.cls"], {
       timeout: 60_000,
     });
 
-    // Count what we got.
-    const { stdout } = await execAsync(
-      `find ${shellQuote(tmpDir)} -name "*.cls" -not -path "*/.git/*"`,
-      { timeout: 30_000 },
-    );
-    const classCount = stdout.trim().split("\n").filter(Boolean).length;
+    // Count what we got by walking the directory (no shell glob needed).
+    const classCount = await countCls(tmpDir);
 
     if (classCount === 0) {
       throw new Error(
@@ -52,19 +48,29 @@ export async function sparseClone(
 
     return { tmpDir, classCount };
   } catch (err) {
-    // Clean up on failure so we don't leave temp dirs behind.
     await fs.rm(tmpDir, { recursive: true, force: true }).catch(() => {});
-    // Scrub the token from any error message before surfacing it.
     const msg = (err as Error).message.replace(token, "<token>");
     throw new Error(msg);
   }
+}
+
+async function countCls(dir: string): Promise<number> {
+  let count = 0;
+  const walk = async (d: string) => {
+    let entries;
+    try { entries = await fs.readdir(d, { withFileTypes: true }); } catch { return; }
+    for (const e of entries) {
+      if (e.name === ".git") continue;
+      const full = path.join(d, e.name);
+      if (e.isDirectory()) await walk(full);
+      else if (e.isFile() && e.name.endsWith(".cls")) count++;
+    }
+  };
+  await walk(dir);
+  return count;
 }
 
 export async function removeTmpDir(dir: string): Promise<void> {
   await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
 }
 
-/** Minimal shell quoting — wraps in single quotes and escapes internal single quotes. */
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, "'\\''")}'`;
-}

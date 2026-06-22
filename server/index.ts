@@ -90,7 +90,7 @@ app.post("/api/repo", async (req, res) => {
       const { tmpDir, classCount } = await sparseClone(url, token, branch);
       repoTmpDir = tmpDir;
       repoIndex = new RepoIndex(tmpDir);
-      await repoIndex.build();
+      await repoIndex.build(); // indexes the already-cloned .cls files
       return res.json({ ok: true, classCount, root: url, branch });
     } else if (localPath) {
       // Local path (dev / localhost only).
