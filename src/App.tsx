@@ -269,7 +269,13 @@ export function App() {
           onDragLeave={() => setDrag(false)}
           onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
         >
-          <div className="big">Drop a Salesforce FINEST debug log</div>
+          <div className="big">Symphonix Log Lens</div>
+          <div className="sub">Drop a Salesforce FINEST debug log — or click to browse</div>
+          <label className="upload-btn">
+            <span className="upload-icon">⬆</span>
+            Upload Debug Log
+            <input type="file" hidden onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+          </label>
           <ul className="landing-points">
             <li>Turns any FINEST debug log into a clickable <b>call tree</b> with timing and values</li>
             <li>Marks managed-package calls as <b>black boxes</b> — honest about what Salesforce hides</li>
@@ -277,13 +283,7 @@ export function App() {
             <li><b>Track any variable</b> across the entire run to see exactly where a value went wrong</li>
             <li>Load <b>multiple logs</b> side-by-side — Failed / Slow / OK badges at a glance</li>
           </ul>
-          <div className="sub">
-            or{" "}
-            <label className="filepick">
-              browse
-              <input type="file" hidden onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
-            </label>{"  ·  home namespace = "}<b>{homeNs}</b>
-          </div>
+          <div className="landing-ns">home namespace = <b>{homeNs}</b> · change in header if needed</div>
           {busy && <div className="sub">parsing…</div>}
           {error && <div className="err">{error}</div>}
         </div>

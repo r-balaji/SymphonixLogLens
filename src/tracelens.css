@@ -38,15 +38,25 @@ input{font-family:inherit}
 .app > main{flex:1;min-height:0}
 
 /* drop / empty state */
-.dropzone{height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:18px;text-align:center}
-.dropzone .big{font-family:var(--disp);font-size:24px}
-.dropzone .sub{color:var(--dim)}
-.landing-points{list-style:none;display:flex;flex-direction:column;gap:10px;text-align:left;max-width:520px;color:var(--dim);font-size:13px;line-height:1.5}
+.dropzone{height:100vh;display:flex;align-items:center;justify-content:center;flex-direction:column;gap:24px;text-align:center;padding:40px 24px}
+.dropzone .big{font-family:var(--disp);font-size:34px;font-weight:700;letter-spacing:-.01em}
+.dropzone .sub{color:var(--dim);font-size:15px}
+.dropzone.drag{outline:2px dashed var(--mth);outline-offset:-20px}
+
+/* large upload button on landing page */
+.upload-btn{display:inline-flex;align-items:center;gap:10px;font-family:var(--disp);font-size:17px;font-weight:600;
+  padding:14px 36px;border-radius:12px;border:2px solid var(--cls);color:var(--cls);
+  background:rgba(94,227,200,.08);cursor:pointer;transition:.18s;white-space:nowrap}
+.upload-btn:hover{background:rgba(94,227,200,.16);box-shadow:0 0 24px rgba(94,227,200,.2)}
+.upload-btn .upload-icon{font-size:22px;line-height:1}
+
+.landing-points{list-style:none;display:flex;flex-direction:column;gap:12px;text-align:left;max-width:560px;color:var(--dim);font-size:14px;line-height:1.55}
 .landing-points li::before{content:"→ ";color:var(--cls)}
 .landing-points b{color:var(--text);font-weight:500}
-.dropzone.drag{outline:2px dashed var(--mth);outline-offset:-20px}
+.landing-ns{font-size:13px;color:var(--faint)}
+.landing-ns b{color:var(--text)}
 .filepick{color:var(--cls);cursor:pointer;text-decoration:underline}
-.err{color:var(--ember)}
+.err{color:var(--ember);font-size:14px}
 
 /* header */
 header{display:flex;align-items:center;gap:18px;padding:12px 20px;border-bottom:1px solid var(--line);background:var(--bar-bg)}
@@ -77,7 +87,7 @@ header{display:flex;align-items:center;gap:18px;padding:12px 20px;border-bottom:
 .xbanner .xt{font-size:12px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .xbanner .xt b{color:var(--ember);font-weight:600}
 .xbanner .xt span{color:var(--dim)}
-.btn{font-size:11.5px;padding:6px 13px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);transition:.15s;white-space:nowrap}
+.btn{font-size:13px;padding:8px 16px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);transition:.15s;white-space:nowrap}
 .btn:hover{border-color:var(--dim)}
 .btn.ember{border-color:rgba(255,82,99,.5);color:#FFC2C9;background:var(--ember-soft);margin-left:auto}
 .btn.ember:hover{box-shadow:0 0 14px var(--ember-glow);border-color:var(--ember)}
