@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { connectRepo, parseLogFile, type ParseResponse } from "./lib/api.js";
+import { connectRepo, disconnectRepo, parseLogFile, type ParseResponse } from "./lib/api.js";
 import { fmtDuration } from "./lib/format.js";
 import { filterTree, focusTree, indexTree, valueTimeline, type Filter } from "./lib/tree.js";
 import { Waterfall } from "./components/Waterfall.js";
@@ -67,7 +67,7 @@ export function App() {
   const [repoUrl, setRepoUrl] = useState("");
   const [repoToken, setRepoToken] = useState("");
   const [repoBranch, setRepoBranch] = useState("main");
-  const [repoInfo, setRepoInfo] = useState<string | null>(null);
+  const [repos, setRepos] = useState<Record<string, { url: string; branch: string; classCount: number }>>({});
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -179,11 +179,17 @@ export function App() {
   const onConnectRepo = useCallback(async () => {
     if (!repoUrl.trim()) return;
     setError(null);
-    setRepoInfo(null);
     setRepoCloning(true);
     try {
-      const info = await connectRepo({ url: repoUrl.trim(), token: repoToken.trim(), branch: repoBranch.trim() || "main" });
-      setRepoInfo(`${info.classCount} classes · ${info.branch ?? repoBranch}`);
+      const branch = repoBranch.trim() || "main";
+      const info = await connectRepo({ url: repoUrl.trim(), token: repoToken.trim(), branch });
+      setRepos((prev) => ({
+        ...prev,
+        [info.repoId]: { url: repoUrl.trim(), branch: info.branch ?? branch, classCount: info.classCount },
+      }));
+      setRepoUrl("");
+      setRepoToken("");
+      setRepoBranch("main");
       if (sessions.length > 0) {
         const reparsed = await Promise.all(
           sessions.map(async (s) => {
@@ -200,12 +206,20 @@ export function App() {
         if (active) primeView(active.result);
       }
     } catch (e) {
-      setRepoInfo("not connected");
       setError(`Repo: ${(e as Error).message}`);
     } finally {
       setRepoCloning(false);
     }
   }, [repoUrl, repoToken, repoBranch, sessions, activeId, primeView]);
+
+  const onDisconnectRepo = useCallback(async (repoId: string) => {
+    await disconnectRepo(repoId);
+    setRepos((prev) => {
+      const next = { ...prev };
+      delete next[repoId];
+      return next;
+    });
+  }, []);
 
   const toggle = useCallback((id: string) => {
     setOpenIds((prev) => {
@@ -257,15 +271,12 @@ export function App() {
     return (
       <div className="app">
         <Header
-          homeNs={homeNs}
-          setHomeNs={setHomeNs}
+          homeNs={homeNs} setHomeNs={setHomeNs}
           repoUrl={repoUrl} setRepoUrl={setRepoUrl}
           repoToken={repoToken} setRepoToken={setRepoToken}
           repoBranch={repoBranch} setRepoBranch={setRepoBranch}
-          repoInfo={repoInfo}
-          onConnectRepo={onConnectRepo}
-          theme={theme}
-          onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
+          repos={repos} onConnectRepo={onConnectRepo} onDisconnectRepo={onDisconnectRepo}
+          theme={theme} onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
         />
         <div
           className={`dropzone ${drag ? "drag" : ""}`}
@@ -304,13 +315,11 @@ export function App() {
     <div className="app">
       {busy && <ParseOverlay fileName={busyFile} />}
       <Header
-        homeNs={homeNs}
-        setHomeNs={setHomeNs}
+        homeNs={homeNs} setHomeNs={setHomeNs}
         repoUrl={repoUrl} setRepoUrl={setRepoUrl}
         repoToken={repoToken} setRepoToken={setRepoToken}
         repoBranch={repoBranch} setRepoBranch={setRepoBranch}
-        repoInfo={repoInfo}
-        onConnectRepo={onConnectRepo}
+        repos={repos} onConnectRepo={onConnectRepo} onDisconnectRepo={onDisconnectRepo}
         meta={{
           name: result.codeUnit ?? "execution",
           sub: `${result.apiVersion} · ${result.user ?? "—"} · ${fmtDuration(result.stats.durationNanos)} · ${result.stats.methodCalls} calls`,
@@ -434,14 +443,16 @@ function Header({
   repoUrl, setRepoUrl,
   repoToken, setRepoToken,
   repoBranch, setRepoBranch,
-  repoInfo, onConnectRepo,
+  repos, onConnectRepo, onDisconnectRepo,
   meta, limits, onNew, onUpload, theme, onToggleTheme,
 }: {
   homeNs: string; setHomeNs: (s: string) => void;
   repoUrl: string; setRepoUrl: (s: string) => void;
   repoToken: string; setRepoToken: (s: string) => void;
   repoBranch: string; setRepoBranch: (s: string) => void;
-  repoInfo: string | null; onConnectRepo: () => void;
+  repos: Record<string, { url: string; branch: string; classCount: number }>;
+  onConnectRepo: () => void;
+  onDisconnectRepo: (repoId: string) => void;
   meta?: { name: string; sub: string };
   limits?: { key: string; used: number; max: number }[];
   onNew?: () => void;
@@ -450,7 +461,7 @@ function Header({
   onToggleTheme: () => void;
 }) {
   const [repoOpen, setRepoOpen] = useState(false);
-  const connected = repoInfo && repoInfo !== "not connected" && repoInfo !== "cloning…";
+  const repoCount = Object.keys(repos).length;
 
   return (
     <header>
@@ -481,49 +492,52 @@ function Header({
         </button>
         <input value={homeNs} onChange={(e) => setHomeNs(e.target.value)} placeholder="home ns" size={6} title="home namespace" />
 
-        {/* Repo connect — popover with URL / PAT / branch fields */}
+        {/* Repo connect — popover with connected repo list + add new form */}
         <div className="repo-wrap">
           <button
-            className={`btn ${connected ? "btn-connected" : ""}`}
+            className={`btn ${repoCount > 0 ? "btn-connected" : ""}`}
             onClick={() => setRepoOpen((o) => !o)}
           >
-            {repoInfo === "cloning…" ? "cloning…" : connected ? `⎇ ${repoInfo}` : "connect repo"}
+            {repoCount > 0 ? `⎇ ${repoCount} repo${repoCount > 1 ? "s" : ""}` : "connect repo"}
           </button>
           {repoOpen && (
             <div className="repo-popover">
+              {/* Connected repos list */}
+              {repoCount > 0 && (
+                <div className="repo-list">
+                  {Object.entries(repos).map(([repoId, r]) => {
+                    const repoName = r.url.replace(/^https?:\/\/github\.com\//, "");
+                    return (
+                      <div key={repoId} className="repo-list-row">
+                        <span className="repo-list-name" title={r.url}>⎇ {repoName}</span>
+                        <span className="repo-list-meta">{r.branch} · {r.classCount} classes</span>
+                        <button className="repo-list-remove" title="disconnect" onClick={() => onDisconnectRepo(repoId)}>×</button>
+                      </div>
+                    );
+                  })}
+                  <div className="repo-list-divider" />
+                </div>
+              )}
+              {/* Add new repo */}
               <div className="repo-field">
                 <label>Repo URL</label>
-                <input
-                  value={repoUrl}
-                  onChange={(e) => setRepoUrl(e.target.value)}
-                  placeholder="https://github.com/org/repo"
-                />
+                <input value={repoUrl} onChange={(e) => setRepoUrl(e.target.value)} placeholder="https://github.com/org/repo" />
               </div>
               <div className="repo-field">
                 <label>Personal Access Token</label>
-                <input
-                  type="password"
-                  value={repoToken}
-                  onChange={(e) => setRepoToken(e.target.value)}
-                  placeholder="ghp_…"
-                />
+                <input type="password" value={repoToken} onChange={(e) => setRepoToken(e.target.value)} placeholder="ghp_…" />
               </div>
               <div className="repo-field">
                 <label>Branch / Tag <span className="repo-field-req">(required)</span></label>
-                <input
-                  value={repoBranch}
-                  onChange={(e) => setRepoBranch(e.target.value)}
-                  placeholder="main"
-                />
+                <input value={repoBranch} onChange={(e) => setRepoBranch(e.target.value)} placeholder="main" />
               </div>
               <button
                 className="btn btn-full"
                 disabled={!repoUrl.trim() || !repoToken.trim() || !repoBranch.trim()}
                 onClick={() => { onConnectRepo(); setRepoOpen(false); }}
               >
-                Clone &amp; index .cls files
+                + Clone &amp; index .cls files
               </button>
-              {repoInfo && <div className="repo-status">{repoInfo}</div>}
             </div>
           )}
         </div>

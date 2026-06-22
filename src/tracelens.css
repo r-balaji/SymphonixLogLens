@@ -335,6 +335,15 @@ td.changed{position:relative}
 .repo-field input:focus{border-color:var(--mth)}
 .repo-field input::placeholder{color:var(--faint)}
 .repo-status{font-size:11px;color:var(--cls);text-align:center;padding-top:2px}
+
+/* connected repo list inside popover */
+.repo-list{display:flex;flex-direction:column;gap:4px;margin-bottom:4px}
+.repo-list-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;background:var(--panel2);border:1px solid var(--line-soft)}
+.repo-list-name{color:var(--cls);font-size:12px;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.repo-list-meta{font-size:11px;color:var(--faint);white-space:nowrap;flex:none}
+.repo-list-remove{font-size:14px;color:var(--faint);flex:none;padding:0 4px;line-height:1}
+.repo-list-remove:hover{color:var(--ember)}
+.repo-list-divider{height:1px;background:var(--line-soft);margin:8px 0 4px}
 button[disabled]{opacity:.4;cursor:not-allowed}
 
 ::-webkit-scrollbar{width:10px;height:10px}

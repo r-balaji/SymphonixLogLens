@@ -21,7 +21,7 @@ export async function connectRepo(opts: {
   token?: string;
   branch?: string;
   path?: string;
-}): Promise<{ ok: true; classCount: number; root: string; branch?: string }> {
+}): Promise<{ ok: true; repoId: string; classCount: number; root: string; branch?: string }> {
   const res = await fetch("/api/repo", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -29,6 +29,10 @@ export async function connectRepo(opts: {
   });
   if (!res.ok) throw new Error((await res.json()).error ?? "Repo connect failed");
   return res.json();
+}
+
+export async function disconnectRepo(repoId: string): Promise<void> {
+  await fetch(`/api/repo/${encodeURIComponent(repoId)}`, { method: "DELETE" });
 }
 
 export async function fetchSource(

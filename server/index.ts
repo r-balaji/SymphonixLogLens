@@ -22,23 +22,27 @@ const upload = multer({
   limits: { fileSize: 30 * 1024 * 1024 },
 });
 
-// One repo index per server process (single-user local tool).
-let repoIndex: RepoIndex | null = null;
-let repoTmpDir: string | null = null; // temp dir from last sparse clone, if any
+// Multiple repo indexes — keyed by a stable repoId derived from url+branch.
+const repoIndexes = new Map<string, RepoIndex>();
+const repoTmpDirs = new Map<string, string>();
 
-/** Walk the tree and attach sourceFile to each home-namespace node we can resolve. */
+function makeRepoId(url: string, branch: string): string {
+  return Buffer.from(`${url}::${branch}`).toString("base64url").slice(0, 12);
+}
+
+/** Walk the tree and attach sourceFile/sourceUrl to each home-namespace node. */
 function enrichWithSource(node: CallNode, home: string): void {
-  if (
-    repoIndex?.isReady() &&
-    node.className &&
-    (node.namespace === home || node.namespace === null)
-  ) {
-    const rel = repoIndex.resolve(node.className);
-    if (rel) {
-      node.sourceFile = rel;
-      node.sourceUrl = `/api/source?path=${encodeURIComponent(rel)}${
-        node.method ? `&method=${encodeURIComponent(node.method)}` : ""
-      }`;
+  if (node.className && (node.namespace === home || node.namespace === null)) {
+    for (const [repoId, index] of repoIndexes) {
+      if (!index.isReady()) continue;
+      const rel = index.resolve(node.className);
+      if (rel) {
+        node.sourceFile = rel;
+        node.sourceUrl = `/api/source?repo=${encodeURIComponent(repoId)}&path=${encodeURIComponent(rel)}${
+          node.method ? `&method=${encodeURIComponent(node.method)}` : ""
+        }`;
+        break; // first match wins
+      }
     }
   }
   for (const c of node.children) enrichWithSource(c, home);
@@ -58,7 +62,7 @@ app.post("/api/parse", upload.single("log"), (req, res) => {
 
     const started = Date.now();
     const result: ParseResult = parseLog(text, { homeNamespace });
-    if (repoIndex?.isReady()) enrichWithSource(result.root, homeNamespace);
+    if (repoIndexes.size > 0) enrichWithSource(result.root, homeNamespace);
     const parseMs = Date.now() - started;
 
     res.json({ ...result, parseMs });
@@ -69,53 +73,69 @@ app.post("/api/parse", upload.single("log"), (req, res) => {
 });
 
 app.post("/api/repo", async (req, res) => {
-  // Clean up any previous sparse-clone temp dir.
-  if (repoTmpDir) {
-    await removeTmpDir(repoTmpDir);
-    repoTmpDir = null;
-  }
-  repoIndex = null;
-
   try {
     const url = String(req.body.url ?? "").trim();
     const token = String(req.body.token ?? "").trim();
     const branch = String(req.body.branch ?? "main").trim() || "main";
     const localPath = String(req.body.path ?? "").trim();
 
-    let root: string;
-
     if (url) {
-      // GitHub URL + PAT: sparse-clone only .cls files into a temp dir.
       if (!token) return res.status(400).json({ error: "A Personal Access Token is required for GitHub repos." });
+
+      const repoId = makeRepoId(url, branch);
+
+      // Clean up the previous clone for this same repo/branch if reconnecting.
+      const oldTmp = repoTmpDirs.get(repoId);
+      if (oldTmp) await removeTmpDir(oldTmp);
+      repoTmpDirs.delete(repoId);
+      repoIndexes.delete(repoId);
+
       const { tmpDir, classCount } = await sparseClone(url, token, branch);
-      repoTmpDir = tmpDir;
-      repoIndex = new RepoIndex(tmpDir);
-      await repoIndex.build(); // indexes the already-cloned .cls files
-      return res.json({ ok: true, classCount, root: url, branch });
+      repoTmpDirs.set(repoId, tmpDir);
+      const index = new RepoIndex(tmpDir);
+      await index.build();
+      repoIndexes.set(repoId, index);
+
+      return res.json({ ok: true, repoId, classCount, root: url, branch });
     } else if (localPath) {
       // Local path (dev / localhost only).
-      root = localPath;
-      repoIndex = new RepoIndex(root);
-      const info = await repoIndex.build();
-      return res.json({ ok: true, ...info });
+      const repoId = makeRepoId(localPath, "local");
+      repoIndexes.delete(repoId);
+      const index = new RepoIndex(localPath);
+      const info = await index.build();
+      repoIndexes.set(repoId, index);
+      return res.json({ ok: true, repoId, ...info });
     } else {
       return res.status(400).json({ error: "Provide a GitHub repo URL or a local path." });
     }
   } catch (err) {
-    repoIndex = null;
-    repoTmpDir = null;
     res.status(400).json({ error: (err as Error).message });
   }
 });
 
+app.delete("/api/repo/:repoId", async (req, res) => {
+  const repoId = req.params.repoId;
+  const tmpDir = repoTmpDirs.get(repoId);
+  if (tmpDir) await removeTmpDir(tmpDir);
+  repoTmpDirs.delete(repoId);
+  repoIndexes.delete(repoId);
+  res.json({ ok: true });
+});
+
 app.get("/api/source", async (req, res) => {
   try {
-    if (!repoIndex?.isReady()) {
-      return res.status(400).json({ error: "No repo connected." });
-    }
+    const repoId = req.query.repo ? String(req.query.repo) : null;
     const rel = String(req.query.path ?? "");
     const method = req.query.method ? String(req.query.method) : null;
-    const { content, methodLine } = await repoIndex.findMethodLine(rel, method);
+
+    const index = repoId
+      ? repoIndexes.get(repoId) ?? null
+      : repoIndexes.size > 0 ? repoIndexes.values().next().value : null;
+
+    if (!index?.isReady()) {
+      return res.status(400).json({ error: "No repo connected." });
+    }
+    const { content, methodLine } = await index.findMethodLine(rel, method);
     res.json({ path: rel, methodLine, content });
   } catch (err) {
     res.status(404).json({ error: (err as Error).message });
