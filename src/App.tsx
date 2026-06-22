@@ -266,41 +266,30 @@ export function App() {
           theme={theme}
           onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
         />
-        {busy ? (
-          <div className="parse-overlay">
-            <div className="parse-card">
-              <div className="parse-spinner" />
-              <div className="parse-title">Analysing log…</div>
-              {busyFile && <div className="parse-file">{busyFile}</div>}
-              <div className="parse-bar"><div className="parse-bar-fill" /></div>
-              <div className="parse-hint">Building call tree · extracting values · mapping managed packages</div>
-            </div>
-          </div>
-        ) : (
-          <div
-            className={`dropzone ${drag ? "drag" : ""}`}
-            onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
-            onDragLeave={() => setDrag(false)}
-            onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
-          >
-            <div className="big">Symphonix Log Lens</div>
-            <div className="sub">Drop a Salesforce FINEST debug log — or click to browse</div>
-            <label className="upload-btn">
-              <span className="upload-icon">⬆</span>
-              Upload Debug Log
-              <input type="file" hidden onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
-            </label>
-            <ul className="landing-points">
-              <li>Turns any FINEST debug log into a clickable <b>call tree</b> with timing and values</li>
-              <li>Marks managed-package calls as <b>black boxes</b> — honest about what Salesforce hides</li>
-              <li><b>Hide noise</b> (e.g. clcommon) or <b>focus</b> on one class to cut through large traces</li>
-              <li><b>Track any variable</b> across the entire run to see exactly where a value went wrong</li>
-              <li>Load <b>multiple logs</b> side-by-side — Failed / Slow / OK badges at a glance</li>
-            </ul>
-            <div className="landing-ns">home namespace = <b>{homeNs}</b> · change in header if needed</div>
-            {error && <div className="err">{error}</div>}
-          </div>
-        )}
+        <div
+          className={`dropzone ${drag ? "drag" : ""}`}
+          onDragOver={(e) => { e.preventDefault(); setDrag(true); }}
+          onDragLeave={() => setDrag(false)}
+          onDrop={(e) => { e.preventDefault(); setDrag(false); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
+        >
+          <div className="big">Symphonix Log Lens</div>
+          <div className="sub">Drop a Salesforce FINEST debug log — or click to browse</div>
+          <label className="upload-btn">
+            <span className="upload-icon">⬆</span>
+            Upload Debug Log
+            <input type="file" hidden onChange={(e) => e.target.files?.[0] && handleFile(e.target.files[0])} />
+          </label>
+          <ul className="landing-points">
+            <li>Turns any FINEST debug log into a clickable <b>call tree</b> with timing and values</li>
+            <li>Marks managed-package calls as <b>black boxes</b> — honest about what Salesforce hides</li>
+            <li><b>Hide noise</b> (e.g. clcommon) or <b>focus</b> on one class to cut through large traces</li>
+            <li><b>Track any variable</b> across the entire run to see exactly where a value went wrong</li>
+            <li>Load <b>multiple logs</b> side-by-side — Failed / Slow / OK badges at a glance</li>
+          </ul>
+          <div className="landing-ns">home namespace = <b>{homeNs}</b> · change in header if needed</div>
+          {error && <div className="err">{error}</div>}
+        </div>
+        {busy && <ParseOverlay fileName={busyFile} />}
       </div>
     );
   }
@@ -311,6 +300,7 @@ export function App() {
 
   return (
     <div className="app">
+      {busy && <ParseOverlay fileName={busyFile} />}
       <Header
         homeNs={homeNs}
         setHomeNs={setHomeNs}
@@ -713,5 +703,19 @@ function TimelinePane({
         )}
       </div>
     </aside>
+  );
+}
+
+function ParseOverlay({ fileName }: { fileName: string | null }) {
+  return (
+    <div className="parse-overlay">
+      <div className="parse-card">
+        <div className="parse-spinner" />
+        <div className="parse-title">Analysing log…</div>
+        {fileName && <div className="parse-file">{fileName}</div>}
+        <div className="parse-bar"><div className="parse-bar-fill" /></div>
+        <div className="parse-hint">Building call tree · extracting values · mapping managed packages</div>
+      </div>
+    </div>
   );
 }

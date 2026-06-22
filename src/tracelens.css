@@ -58,8 +58,9 @@ input{font-family:inherit}
 .filepick{color:var(--cls);cursor:pointer;text-decoration:underline}
 .err{color:var(--ember);font-size:14px}
 
-/* parsing overlay */
-.parse-overlay{height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+/* parsing overlay — fixed so it covers the full screen from any state */
+.parse-overlay{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;
+  background:rgba(14,19,32,.85);backdrop-filter:blur(4px)}
 .parse-card{display:flex;flex-direction:column;align-items:center;gap:20px;
   background:var(--panel);border:1px solid var(--line);border-radius:20px;
   padding:48px 56px;min-width:360px;max-width:480px;text-align:center;
