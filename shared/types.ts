@@ -89,6 +89,30 @@ export interface LimitUsage {
   max: number;
 }
 
+/** Whether the transaction ran in a synchronous or asynchronous context. */
+export type ExecContext = "sync" | "async" | "unknown";
+
+/** One governor-limit row for the summary panel. */
+export interface LimitRow {
+  key: string; // display name, e.g. "SOQL queries"
+  used: number;
+  max: number;
+}
+
+/**
+ * Summary of governor-limit usage for the transaction.
+ * - source "logged": numbers come straight from CUMULATIVE_LIMIT_USAGE (exact).
+ * - source "estimated": derived from counted SOQL/DML events against the
+ *   standard caps for the detected context (best effort when limit logging
+ *   is off).
+ */
+export interface LimitsSummary {
+  context: ExecContext;
+  contextLabel: string; // "Synchronous", "Asynchronous (Queueable)", ...
+  source: "logged" | "estimated";
+  rows: LimitRow[];
+}
+
 export interface ParseStats {
   totalLines: number;
   events: Record<string, number>;
@@ -116,6 +140,7 @@ export interface ParseResult {
   root: CallNode;
   stats: ParseStats;
   limits: LimitUsage[];
+  limitsSummary: LimitsSummary;
   exception: CallNode | null; // the thrown exception node, if any
   warnings: string[];
 }

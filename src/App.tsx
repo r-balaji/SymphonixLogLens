@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { connectRepo, disconnectRepo, parseLogFile, type ParseResponse } from "./lib/api.js";
+import type { LimitsSummary } from "../shared/types.js";
 import { fmtDuration } from "./lib/format.js";
 import { filterTree, focusTree, indexTree, valueTimeline, type Filter } from "./lib/tree.js";
 import { Waterfall } from "./components/Waterfall.js";
@@ -88,6 +89,7 @@ export function App() {
   const [openIds, setOpenIds] = useState<Set<string>>(new Set());
   const [trackName, setTrackName] = useState<string | null>(null);
   const [showFlame, setShowFlame] = useState(false);
+  const [showLimits, setShowLimits] = useState(true);
   const [filters, setFilters] = useState<Filter[]>([]);
   const [focusClasses, setFocusClasses] = useState<string[]>([]);
 
@@ -367,6 +369,8 @@ export function App() {
         )}
       </div>
 
+      <GovernorLimits summary={result.limitsSummary} show={showLimits} onToggle={() => setShowLimits((v) => !v)} />
+
       <HeroStrip session={sessions.find((s) => s.id === activeId)!} result={result} />
 
       <FilterFocusBar
@@ -597,6 +601,52 @@ function SessionRail({
         ))}
       </div>
     </aside>
+  );
+}
+
+function GovernorLimits({ summary, show, onToggle }: { summary: LimitsSummary; show: boolean; onToggle: () => void }) {
+  const allZero = summary.rows.every((r) => r.used === 0);
+  const peak = summary.rows.length > 0 ? Math.max(...summary.rows.map((r) => (r.used / r.max) * 100)) : 0;
+  const peakTone = peak >= 90 ? "red" : peak >= 50 ? "orange" : "green";
+
+  return (
+    <div className="limitwrap">
+      <div className="limithead">
+        <button className="flametgl" onClick={onToggle}>{show ? "−" : "+"}</button>
+        <span className="t">Governor limits</span>
+        <span className={`lim-context ${summary.context}`}>{summary.contextLabel}</span>
+        <span className="ticks">
+          {summary.source === "logged" ? "from log" : "estimated from counted events"}
+          {!show && summary.rows.length > 0 && (
+            <> · peak <b className={`lim-pct ${peakTone}`}>{peak.toFixed(0)}%</b></>
+          )}
+        </span>
+      </div>
+      {show && (
+        summary.source === "estimated" && allZero ? (
+          <div className="lim-hint">
+            No SOQL/DML or limit data in this log. Enable <b>APEX_PROFILING</b> (and <b>DB</b>)
+            logging to see full governor-limit usage.
+          </div>
+        ) : (
+          <div className="limgrid">
+            {summary.rows.map((r) => {
+              const pct = Math.min(100, (r.used / r.max) * 100);
+              const tone = pct >= 90 ? "red" : pct >= 50 ? "orange" : "green";
+              return (
+                <div className="limcard" key={r.key}>
+                  <div className="limcard-top">
+                    <span className="limk" title={r.key}>{r.key}</span>
+                    <span className={`limv ${tone}`}>{r.used.toLocaleString()}<span className="limmax">/{r.max.toLocaleString()}</span></span>
+                  </div>
+                  <div className="limbar"><i className={tone} style={{ width: `${Math.max(2, pct)}%` }} /></div>
+                </div>
+              );
+            })}
+          </div>
+        )
+      )}
+    </div>
   );
 }
 

@@ -1,6 +1,9 @@
 import type {
   CallNode,
   DebugEntry,
+  ExecContext,
+  LimitRow,
+  LimitsSummary,
   LimitUsage,
   ParseOptions,
   ParseResult,
@@ -125,6 +128,8 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
   let codeUnit: string | null = null;
   let exceptionNode: CallNode | null = null;
   const limits: LimitUsage[] = [];
+  // Set when a code-unit label hints at an async entry point (Queueable, Batch, …).
+  let asyncLabel: string | null = null;
 
   // Pending managed-package run state. We fold consecutive ENTERING_MANAGED_PKG
   // markers (same namespace, uninterrupted by a real method event) into one node.
@@ -174,6 +179,7 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
         const parts = payload.split("|");
         const label = parts[parts.length - 1];
         if (codeUnit === null) codeUnit = label;
+        if (asyncLabel === null) asyncLabel = asyncHintFromLabel(label);
         const unit = makeNode("method");
         unit.method = label;
         unit.signature = label;
@@ -403,11 +409,23 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
       case "LIMIT_USAGE_FOR_NS": {
         // Lines like "  Number of SOQL queries: 4 out of 100" follow on
         // subsequent physical lines; capture from the recent raw ring.
-        for (const rl of recentRaw) {
-          const lm = /Number of ([\w ]+?):\s*(\d+) out of (\d+)/.exec(rl) ||
-            /Maximum (CPU time):\s*(\d+) out of (\d+)/.exec(rl);
-          if (lm && !limits.some((x) => x.key === lm[1].trim())) {
-            limits.push({ key: lm[1].trim(), used: Number(lm[2]), max: Number(lm[3]) });
+        // The "  Number of X: N out of M" detail lines FOLLOW this event line
+        // and are indented continuations that don't match LINE_RE — scan forward
+        // until the next real event line.
+        for (let j = i + 1; j < lines.length; j++) {
+          const dl = lines[j];
+          if (LINE_RE.test(dl)) break; // next event begins
+          const lm = /Number of ([\w ]+?):\s*(\d+) out of (\d+)/.exec(dl) ||
+            /Maximum ([\w ]+?):\s*(\d+) out of (\d+)/.exec(dl);
+          if (lm) {
+            const key = lm[1].trim();
+            const used = Number(lm[2]);
+            const max = Number(lm[3]);
+            const existing = limits.find((x) => x.key === key);
+            // Limit blocks repeat per code-unit boundary; keep the PEAK usage,
+            // which is what governs whether the transaction hit a cap.
+            if (!existing) limits.push({ key, used, max });
+            else if (used > existing.used) existing.used = used;
           }
         }
         break;
@@ -448,6 +466,7 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
     codeUnit,
     root,
     limits,
+    limitsSummary: buildLimitsSummary(limits, asyncLabel, soqlCount, dmlCount),
     exception: exceptionNode,
     warnings,
     stats: {
@@ -467,6 +486,73 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
       hasException: exceptionNode !== null,
     },
   };
+}
+
+// --- Governor limits -------------------------------------------------------
+
+// Standard per-transaction caps used when the log has no CUMULATIVE_LIMIT_USAGE
+// (i.e. APEX_PROFILING was off) so we can still estimate from counted events.
+const STD_CAPS = {
+  sync: { soql: 100, dml: 150 },
+  async: { soql: 200, dml: 150 },
+};
+
+/** Returns an async context label if the code-unit label hints at one. */
+function asyncHintFromLabel(label: string): string | null {
+  const l = label.toLowerCase();
+  if (/queueable/.test(l)) return "Asynchronous (Queueable)";
+  if (/\bbatch/.test(l)) return "Asynchronous (Batch)";
+  if (/future/.test(l)) return "Asynchronous (@future)";
+  if (/schedul/.test(l)) return "Asynchronous (Scheduled)";
+  return null;
+}
+
+/** Strip the "Number of " / "Maximum " prefix and tidy a logged limit key. */
+function prettyLimitKey(k: string): string {
+  const s = k.replace(/^Number of /i, "").replace(/^Maximum /i, "");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function buildLimitsSummary(
+  limits: LimitUsage[],
+  asyncLabel: string | null,
+  soqlCount: number,
+  dmlCount: number,
+): LimitsSummary {
+  // Context: the logged SOQL cap is the most reliable signal (100 sync / 200 async),
+  // then the code-unit label hint, else assume synchronous.
+  const soqlLimit = limits.find((l) => /SOQL queries/i.test(l.key));
+  let context: ExecContext;
+  let contextLabel: string;
+  if (soqlLimit?.max === 200) {
+    context = "async";
+    contextLabel = asyncLabel ?? "Asynchronous";
+  } else if (soqlLimit?.max === 100) {
+    context = "sync";
+    contextLabel = "Synchronous";
+  } else if (asyncLabel) {
+    context = "async";
+    contextLabel = asyncLabel;
+  } else {
+    context = "sync";
+    contextLabel = "Synchronous (assumed)";
+  }
+
+  if (limits.length > 0) {
+    const rows: LimitRow[] = limits
+      .filter((l) => l.max > 0)
+      .map((l) => ({ key: prettyLimitKey(l.key), used: l.used, max: l.max }))
+      .sort((a, b) => b.used / b.max - a.used / a.max);
+    return { context, contextLabel, source: "logged", rows };
+  }
+
+  // No logged limits — estimate from what we counted.
+  const caps = context === "async" ? STD_CAPS.async : STD_CAPS.sync;
+  const rows: LimitRow[] = [
+    { key: "SOQL queries", used: soqlCount, max: caps.soql },
+    { key: "DML statements", used: dmlCount, max: caps.dml },
+  ];
+  return { context, contextLabel, source: "estimated", rows };
 }
 
 function firstStart(node: CallNode): number | null {
