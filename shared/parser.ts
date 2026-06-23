@@ -125,6 +125,8 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
   let managedPkgRuns = 0;
   let soqlCount = 0;
   let dmlCount = 0;
+  let soqlRows = 0;
+  let dmlRows = 0;
   let codeUnit: string | null = null;
   let exceptionNode: CallNode | null = null;
   const limits: LimitUsage[] = [];
@@ -337,6 +339,7 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
         if (node.kind === "soql") {
           const rm = /Rows:(\d+)/.exec(parts[1] ?? "");
           node.rows = rm ? Number(rm[1]) : null;
+          if (rm) soqlRows += Number(rm[1]);
           node.endNanos = nanos;
           stack.pop();
         }
@@ -354,6 +357,7 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
         node.className = typeM ? typeM[1] : null;
         const rowM = /Rows:(\d+)/.exec(parts[3] ?? "");
         node.rows = rowM ? Number(rowM[1]) : null;
+        if (rowM) dmlRows += Number(rowM[1]);
         node.method = `${node.dmlOp} ${node.className ?? ""}`.trim();
         node.startNanos = nanos;
         attachRaw(node, raw);
@@ -466,7 +470,14 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
     codeUnit,
     root,
     limits,
-    limitsSummary: buildLimitsSummary(limits, asyncLabel, soqlCount, dmlCount),
+    limitsSummary: buildLimitsSummary(limits, asyncLabel, {
+      soqlCount,
+      soqlRows,
+      dmlCount,
+      dmlRows,
+      soslCount: events["SOSL_EXECUTE_BEGIN"] ?? 0,
+      calloutCount: events["CALLOUT_REQUEST"] ?? 0,
+    }),
     exception: exceptionNode,
     warnings,
     stats: {
@@ -492,10 +503,25 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
 
 // Standard per-transaction caps used when the log has no CUMULATIVE_LIMIT_USAGE
 // (i.e. APEX_PROFILING was off) so we can still estimate from counted events.
+// Only SOQL queries and CPU differ between sync/async; the rest are shared.
 const STD_CAPS = {
-  sync: { soql: 100, dml: 150 },
-  async: { soql: 200, dml: 150 },
+  soqlSync: 100,
+  soqlAsync: 200,
+  soqlRows: 50000,
+  dml: 150,
+  dmlRows: 10000,
+  sosl: 20,
+  callouts: 100,
 };
+
+interface CountedEvents {
+  soqlCount: number;
+  soqlRows: number;
+  dmlCount: number;
+  dmlRows: number;
+  soslCount: number;
+  calloutCount: number;
+}
 
 /** Returns an async context label if the code-unit label hints at one. */
 function asyncHintFromLabel(label: string): string | null {
@@ -516,8 +542,7 @@ function prettyLimitKey(k: string): string {
 function buildLimitsSummary(
   limits: LimitUsage[],
   asyncLabel: string | null,
-  soqlCount: number,
-  dmlCount: number,
+  counts: CountedEvents,
 ): LimitsSummary {
   // Context: the logged SOQL cap is the most reliable signal (100 sync / 200 async),
   // then the code-unit label hint, else assume synchronous.
@@ -546,11 +571,15 @@ function buildLimitsSummary(
     return { context, contextLabel, source: "logged", rows };
   }
 
-  // No logged limits — estimate from what we counted.
-  const caps = context === "async" ? STD_CAPS.async : STD_CAPS.sync;
+  // No logged limits — estimate from every limit-relevant event we counted.
+  const soqlMax = context === "async" ? STD_CAPS.soqlAsync : STD_CAPS.soqlSync;
   const rows: LimitRow[] = [
-    { key: "SOQL queries", used: soqlCount, max: caps.soql },
-    { key: "DML statements", used: dmlCount, max: caps.dml },
+    { key: "SOQL queries", used: counts.soqlCount, max: soqlMax },
+    { key: "Query rows", used: counts.soqlRows, max: STD_CAPS.soqlRows },
+    { key: "DML statements", used: counts.dmlCount, max: STD_CAPS.dml },
+    { key: "DML rows", used: counts.dmlRows, max: STD_CAPS.dmlRows },
+    { key: "SOSL queries", used: counts.soslCount, max: STD_CAPS.sosl },
+    { key: "Callouts", used: counts.calloutCount, max: STD_CAPS.callouts },
   ];
   return { context, contextLabel, source: "estimated", rows };
 }

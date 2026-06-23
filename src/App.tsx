@@ -327,7 +327,6 @@ export function App() {
           name: result.codeUnit ?? "execution",
           sub: `${result.apiVersion} · ${result.user ?? "—"} · ${fmtDuration(result.stats.durationNanos)} · ${result.stats.methodCalls} calls`,
         }}
-        limits={result.stats.hasLimits ? result.limits : undefined}
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
         onUpload={handleFile}
@@ -449,7 +448,7 @@ function Header({
   repoToken, setRepoToken,
   repoBranch, setRepoBranch,
   repos, onConnectRepo, onDisconnectRepo,
-  meta, limits, onNew, onUpload, theme, onToggleTheme,
+  meta, onNew, onUpload, theme, onToggleTheme,
 }: {
   homeNs: string; setHomeNs: (s: string) => void;
   repoUrl: string; setRepoUrl: (s: string) => void;
@@ -459,7 +458,6 @@ function Header({
   onConnectRepo: () => void;
   onDisconnectRepo: (repoId: string) => void;
   meta?: { name: string; sub: string };
-  limits?: { key: string; used: number; max: number }[];
   onNew?: () => void;
   onUpload?: (f: File) => void;
   theme: Theme;
@@ -478,20 +476,6 @@ function Header({
         </div>
       )}
       <div className="hdr-controls">
-        {limits && (
-          <div className="limits">
-            {limits.map((l) => {
-              const pct = (l.used / l.max) * 100;
-              return (
-                <div key={l.key} className={`limit ${pct > 60 ? "hot" : ""}`}>
-                  <span className="k">{l.key}</span>
-                  <span className="v"><b>{l.used.toLocaleString()}</b><span> / {l.max.toLocaleString()}</span></span>
-                  <span className="bar"><i style={{ width: `${Math.max(2, pct)}%` }} /></span>
-                </div>
-              );
-            })}
-          </div>
-        )}
         <button className="btn theme-btn" onClick={onToggleTheme}>
           {theme === "dark" ? "☀ Light" : "☾ Dark"}
         </button>
@@ -605,6 +589,7 @@ function SessionRail({
 }
 
 function GovernorLimits({ summary, show, onToggle }: { summary: LimitsSummary; show: boolean; onToggle: () => void }) {
+  if (!summary?.rows) return null; // defensive: session parsed by an older server
   const allZero = summary.rows.every((r) => r.used === 0);
   const peak = summary.rows.length > 0 ? Math.max(...summary.rows.map((r) => (r.used / r.max) * 100)) : 0;
   const peakTone = peak >= 90 ? "red" : peak >= 50 ? "orange" : "green";
@@ -625,8 +610,18 @@ function GovernorLimits({ summary, show, onToggle }: { summary: LimitsSummary; s
       {show && (
         summary.source === "estimated" && allZero ? (
           <div className="lim-hint">
-            No SOQL/DML or limit data in this log. Enable <b>APEX_PROFILING</b> (and <b>DB</b>)
-            logging to see full governor-limit usage.
+            <div>This log doesn't record any limit-relevant events, so usage can't be shown.</div>
+            <div style={{ marginTop: 8 }}>
+              To capture governor limits, set these debug levels and re-run:
+            </div>
+            <div className="lim-levels">
+              <span><b>Apex Code</b> = FINEST</span>
+              <span><b>Database</b> = FINEST</span>
+              <span><b>Profiling</b> = FINEST</span>
+            </div>
+            <div style={{ marginTop: 6, color: "var(--faint)" }}>
+              Profiling gives the full set of 13 limits exactly; Database alone gives SOQL/DML/callout counts.
+            </div>
           </div>
         ) : (
           <div className="limgrid">
