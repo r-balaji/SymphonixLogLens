@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: logplaybook
+    runtime: node
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    # Render injects PORT automatically; no need to set it here.
