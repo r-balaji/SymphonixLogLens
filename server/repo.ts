@@ -62,6 +62,10 @@ export class RepoIndex {
     return this.built;
   }
 
+  get classCount(): number {
+    return this.byClassName.size;
+  }
+
   /** Returns the repo-relative path for a class name, or null. */
   resolve(className: string | null): string | null {
     if (!className) return null;
