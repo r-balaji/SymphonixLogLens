@@ -73,7 +73,58 @@ async function countCls(dir: string): Promise<number> {
   return count;
 }
 
+/**
+ * Cheap access check (no clone): can this token reach this repo+branch?
+ * Used when a session attaches to an ALREADY-cloned repo in the dedup cache —
+ * so we share the bytes but never let someone read a repo their token can't.
+ */
+export async function verifyAccess(
+  repoUrl: string,
+  token: string,
+  branch: string,
+): Promise<void> {
+  const authedUrl = repoUrl.replace(/^https?:\/\//, `https://${token}@`);
+  try {
+    await execFileAsync("git", ["ls-remote", "--heads", authedUrl, branch], {
+      timeout: 30_000,
+    });
+  } catch (err) {
+    const e = err as Error & { stderr?: string };
+    const detail = (e.stderr?.trim() || e.message).replace(
+      new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g"),
+      "<token>",
+    );
+    throw new Error(`Access check failed for ${repoUrl} (${branch}): ${detail}`);
+  }
+}
+
 export async function removeTmpDir(dir: string): Promise<void> {
   await fs.rm(dir, { recursive: true, force: true }).catch(() => {});
+}
+
+const CLONE_PREFIX = "loglens-repo-";
+
+/**
+ * Delete any leftover clone dirs in the temp dir. Called at startup: the
+ * in-memory repo map is empty on boot, so every `loglens-repo-*` on disk is a
+ * guaranteed orphan from a previous run (a process that died without cleaning
+ * up). Without this, orphaned clones accumulate across restarts.
+ */
+export async function cleanupStaleClones(): Promise<number> {
+  const tmp = os.tmpdir();
+  let removed = 0;
+  let entries: string[] = [];
+  try {
+    entries = await fs.readdir(tmp);
+  } catch {
+    return 0;
+  }
+  for (const name of entries) {
+    if (name.startsWith(CLONE_PREFIX)) {
+      await removeTmpDir(path.join(tmp, name));
+      removed++;
+    }
+  }
+  return removed;
 }
 

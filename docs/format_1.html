@@ -1,0 +1,1155 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ApexTrace Flow Prototype</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #070914;
+      --bg-2: #0c1023;
+      --panel: rgba(17, 24, 48, 0.72);
+      --panel-strong: rgba(21, 29, 58, 0.96);
+      --panel-soft: rgba(255, 255, 255, 0.055);
+      --text: #eef4ff;
+      --muted: #8d99b6;
+      --muted-2: #66718f;
+      --line: rgba(255, 255, 255, 0.12);
+      --line-strong: rgba(255, 255, 255, 0.22);
+      --accent: #6be4ff;
+      --accent-2: #9b8cff;
+      --good: #4ee59a;
+      --warn: #ffd36b;
+      --bad: #ff6978;
+      --orange: #ff9b54;
+      --violet: #b78cff;
+      --shadow: 0 24px 80px rgba(0, 0, 0, 0.45);
+      --radius-xl: 28px;
+      --radius-lg: 20px;
+      --radius-md: 14px;
+      --radius-sm: 10px;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: var(--sans);
+      color: var(--text);
+      background:
+        radial-gradient(circle at 15% 15%, rgba(107, 228, 255, 0.18), transparent 27rem),
+        radial-gradient(circle at 82% 10%, rgba(155, 140, 255, 0.18), transparent 25rem),
+        radial-gradient(circle at 50% 90%, rgba(255, 105, 120, 0.10), transparent 33rem),
+        var(--bg);
+      overflow: hidden;
+    }
+
+    button, input, select { font: inherit; }
+    button { cursor: pointer; border: 0; }
+
+    .app-shell {
+      height: 100vh;
+      display: grid;
+      grid-template-rows: 72px 1fr;
+      position: relative;
+    }
+
+    .ambient-grid {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      opacity: 0.35;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.035) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.035) 1px, transparent 1px);
+      background-size: 42px 42px;
+      mask-image: radial-gradient(circle at 50% 45%, black 0, transparent 75%);
+    }
+
+    header {
+      z-index: 5;
+      display: grid;
+      grid-template-columns: 320px 1fr auto;
+      align-items: center;
+      gap: 18px;
+      padding: 14px 22px;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(180deg, rgba(11, 15, 31, 0.92), rgba(11, 15, 31, 0.64));
+      backdrop-filter: blur(20px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+    }
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(135deg, rgba(107,228,255,0.9), rgba(155,140,255,0.8) 55%, rgba(255,105,120,0.72));
+      box-shadow: 0 10px 38px rgba(107,228,255,0.25);
+      font-weight: 900;
+      color: #06101e;
+    }
+    .brand h1 {
+      margin: 0;
+      font-size: 17px;
+      letter-spacing: 0.2px;
+    }
+    .brand small {
+      display: block;
+      color: var(--muted);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .omnibar {
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      gap: 10px;
+      align-items: center;
+    }
+    .search {
+      position: relative;
+    }
+    .search input {
+      width: 100%;
+      color: var(--text);
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.13);
+      border-radius: 999px;
+      padding: 12px 44px 12px 42px;
+      outline: none;
+      transition: border-color 180ms ease, background 180ms ease;
+    }
+    .search input:focus {
+      border-color: rgba(107,228,255,0.7);
+      background: rgba(255,255,255,0.095);
+    }
+    .search .icon {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted);
+    }
+    .kbd {
+      position: absolute;
+      right: 13px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--muted-2);
+      border: 1px solid rgba(255,255,255,0.14);
+      padding: 1px 7px;
+      border-radius: 7px;
+      font: 11px var(--mono);
+    }
+
+    .pill,
+    .ghost-btn,
+    .primary-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 999px;
+      white-space: nowrap;
+    }
+    .pill {
+      color: #c7d3ee;
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(255,255,255,0.055);
+    }
+    .pill b { color: var(--text); font-weight: 700; }
+    .ghost-btn {
+      color: var(--text);
+      background: rgba(255,255,255,0.075);
+      border: 1px solid rgba(255,255,255,0.13);
+    }
+    .ghost-btn:hover { background: rgba(255,255,255,0.12); }
+    .primary-btn {
+      color: #06101e;
+      font-weight: 800;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      box-shadow: 0 12px 32px rgba(107,228,255,0.18);
+    }
+
+    .main {
+      min-height: 0;
+      display: grid;
+      grid-template-columns: 292px minmax(600px, 1fr) 430px;
+      gap: 16px;
+      padding: 16px;
+      position: relative;
+      z-index: 2;
+    }
+
+    .panel {
+      min-height: 0;
+      background: var(--panel);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: var(--radius-xl);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(22px);
+      overflow: hidden;
+    }
+    .sidebar, .inspector { display: flex; flex-direction: column; }
+
+    .panel-header {
+      padding: 18px 18px 14px;
+      border-bottom: 1px solid var(--line);
+    }
+    .panel-title {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 0 0 8px;
+    }
+    .panel-title h2,
+    .panel-title h3 {
+      margin: 0;
+      font-size: 15px;
+      letter-spacing: 0.2px;
+    }
+    .panel-subtitle {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .upload-drop {
+      margin: 14px 0 0;
+      padding: 14px;
+      border-radius: 18px;
+      background:
+        linear-gradient(135deg, rgba(107,228,255,0.10), rgba(155,140,255,0.08)),
+        rgba(255,255,255,0.05);
+      border: 1px dashed rgba(107,228,255,0.44);
+    }
+    .upload-drop strong { display: block; font-size: 13px; margin-bottom: 4px; }
+    .upload-drop span { color: var(--muted); font-size: 12px; line-height: 1.35; }
+
+    .sidebar-body, .inspector-body {
+      overflow: auto;
+      min-height: 0;
+      padding: 14px;
+    }
+    .sidebar-body::-webkit-scrollbar,
+    .inspector-body::-webkit-scrollbar,
+    .canvas-scroll::-webkit-scrollbar { width: 10px; height: 10px; }
+    .sidebar-body::-webkit-scrollbar-thumb,
+    .inspector-body::-webkit-scrollbar-thumb,
+    .canvas-scroll::-webkit-scrollbar-thumb {
+      background: rgba(255,255,255,0.16);
+      border-radius: 999px;
+      border: 2px solid rgba(0,0,0,0.08);
+    }
+
+    .section-label {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin: 18px 4px 9px;
+      color: var(--muted);
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .trace-card {
+      width: 100%;
+      display: block;
+      text-align: left;
+      color: inherit;
+      padding: 14px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.055);
+      border: 1px solid rgba(255,255,255,0.10);
+      margin-bottom: 10px;
+      transition: transform 160ms ease, background 160ms ease, border 160ms ease;
+    }
+    .trace-card:hover { transform: translateY(-1px); background: rgba(255,255,255,0.085); }
+    .trace-card.active { border-color: rgba(107,228,255,0.45); box-shadow: 0 0 0 1px rgba(107,228,255,0.2) inset; }
+    .trace-card .row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .trace-card strong { font-size: 13px; }
+    .trace-card small { display: block; color: var(--muted); margin-top: 5px; line-height: 1.35; }
+    .mini-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 11px;
+      background: rgba(255,255,255,0.08);
+      color: #d7def1;
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+    .mini-badge.bad { color: #ffd4da; background: rgba(255,105,120,0.12); border-color: rgba(255,105,120,0.24); }
+    .mini-badge.good { color: #ceffe5; background: rgba(78,229,154,0.10); border-color: rgba(78,229,154,0.22); }
+    .mini-badge.warn { color: #ffe9b2; background: rgba(255,211,107,0.10); border-color: rgba(255,211,107,0.22); }
+
+    .filter-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .filter-chip {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 9px 8px;
+      color: #c6d0e8;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(255,255,255,0.045);
+      font-size: 12px;
+    }
+    .filter-chip.on { color: #07111e; background: linear-gradient(135deg, var(--accent), #b2f3ff); font-weight: 800; }
+
+    .center {
+      min-width: 0;
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      gap: 16px;
+    }
+
+    .hero {
+      position: relative;
+      padding: 20px;
+      border-radius: var(--radius-xl);
+      border: 1px solid rgba(255,255,255,0.12);
+      background:
+        radial-gradient(circle at 5% 20%, rgba(255,105,120,0.16), transparent 22rem),
+        radial-gradient(circle at 95% 20%, rgba(107,228,255,0.14), transparent 20rem),
+        rgba(17, 24, 48, 0.72);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(22px);
+      overflow: hidden;
+    }
+    .hero-top {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 16px;
+    }
+    .crumbs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 10px;
+    }
+    .hero h2 { margin: 0; font-size: 28px; letter-spacing: -0.02em; }
+    .hero h2 span { color: var(--bad); }
+    .hero p { max-width: 860px; margin: 8px 0 0; color: #b8c3dd; line-height: 1.5; }
+    .hero-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(110px, 1fr));
+      gap: 10px;
+      margin-top: 18px;
+    }
+    .metric {
+      padding: 12px;
+      border-radius: 17px;
+      background: rgba(255,255,255,0.055);
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+    .metric span { color: var(--muted); display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.1em; }
+    .metric strong { display: block; margin-top: 7px; font-size: 18px; }
+    .metric em { color: var(--muted); font-style: normal; font-size: 12px; }
+
+    .canvas-panel {
+      min-height: 0;
+      position: relative;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 50% 0, rgba(107,228,255,0.10), transparent 18rem),
+        rgba(17, 24, 48, 0.72);
+    }
+    .canvas-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(12,16,35,0.82);
+      backdrop-filter: blur(16px);
+    }
+    .view-tabs { display: flex; gap: 8px; align-items: center; }
+    .view-tab {
+      color: #bfc9e5;
+      background: rgba(255,255,255,0.055);
+      border: 1px solid rgba(255,255,255,0.10);
+      padding: 9px 11px;
+      border-radius: 999px;
+      font-size: 12px;
+    }
+    .view-tab.active { color: #07111e; background: linear-gradient(135deg, var(--accent), #b5f2ff); font-weight: 800; }
+    .zoom-actions { display: flex; gap: 8px; }
+    .icon-btn {
+      width: 36px; height: 36px; border-radius: 12px;
+      color: var(--text); background: rgba(255,255,255,0.065);
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+
+    .canvas-scroll {
+      height: 100%;
+      overflow: auto;
+      padding: 26px 26px 36px;
+    }
+    .flow-stage {
+      min-width: 950px;
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+    .flow-stage:before {
+      content: "";
+      position: absolute;
+      left: 80px;
+      right: 80px;
+      top: 107px;
+      height: 2px;
+      background: linear-gradient(90deg, rgba(107,228,255,0.25), rgba(155,140,255,0.35), rgba(255,105,120,0.45));
+      box-shadow: 0 0 16px rgba(107,228,255,0.18);
+      z-index: 0;
+    }
+    .branch-line {
+      position: absolute;
+      width: 2px;
+      background: rgba(255,255,255,0.15);
+      top: 107px;
+      height: 150px;
+      z-index: 0;
+    }
+    .branch-line.b1 { left: 49.2%; }
+    .branch-line.b2 { left: 66.4%; height: 125px; }
+    .branch-label {
+      position: absolute;
+      top: 168px;
+      color: var(--muted-2);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+    }
+    .branch-label.b1 { left: 47.6%; }
+    .branch-label.b2 { left: 64.6%; }
+
+    .node-col { position: relative; z-index: 1; display: flex; flex-direction: column; gap: 16px; }
+    .flow-node {
+      position: relative;
+      display: block;
+      width: 100%;
+      min-height: 156px;
+      text-align: left;
+      color: inherit;
+      padding: 15px;
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.095), rgba(255,255,255,0.045));
+      border: 1px solid rgba(255,255,255,0.13);
+      box-shadow: 0 14px 40px rgba(0,0,0,0.20);
+      transition: transform 180ms ease, border 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+    .flow-node:hover { transform: translateY(-3px); border-color: rgba(107,228,255,0.38); }
+    .flow-node.active {
+      border-color: rgba(107,228,255,0.8);
+      box-shadow: 0 0 0 1px rgba(107,228,255,0.35) inset, 0 18px 55px rgba(107,228,255,0.10);
+      background: linear-gradient(180deg, rgba(107,228,255,0.13), rgba(255,255,255,0.055));
+    }
+    .flow-node.exception {
+      border-color: rgba(255,105,120,0.55);
+      background: linear-gradient(180deg, rgba(255,105,120,0.17), rgba(255,255,255,0.045));
+    }
+    .flow-node.blackbox {
+      border-style: dashed;
+      background:
+        repeating-linear-gradient(135deg, rgba(255,255,255,0.04) 0 8px, rgba(255,255,255,0.02) 8px 16px),
+        rgba(255,255,255,0.045);
+    }
+    .node-icon {
+      width: 40px; height: 40px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      background: rgba(107,228,255,0.14);
+      border: 1px solid rgba(107,228,255,0.2);
+      margin-bottom: 12px;
+    }
+    .flow-node.exception .node-icon { background: rgba(255,105,120,0.15); border-color: rgba(255,105,120,0.28); }
+    .flow-node h3 { margin: 0; font-size: 14px; line-height: 1.25; }
+    .flow-node .meta { margin-top: 7px; color: var(--muted); font-size: 12px; line-height: 1.4; font-family: var(--mono); }
+    .node-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .risk-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; background: var(--good); box-shadow: 0 0 12px currentColor; }
+    .risk-dot.warn { background: var(--warn); }
+    .risk-dot.bad { background: var(--bad); }
+    .subflow {
+      margin-top: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .sub-node {
+      width: 100%;
+      text-align: left;
+      color: inherit;
+      padding: 12px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.055);
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+    .sub-node strong { font-size: 12px; }
+    .sub-node small { display: block; color: var(--muted); margin-top: 4px; font-family: var(--mono); font-size: 11px; }
+
+    .waterfall {
+      padding: 14px 16px;
+      border-radius: var(--radius-xl);
+      border: 1px solid rgba(255,255,255,0.12);
+      background: rgba(17, 24, 48, 0.72);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(22px);
+    }
+    .waterfall-head {
+      display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px;
+    }
+    .waterfall-head h3 { margin: 0; font-size: 14px; }
+    .waterfall-grid {
+      display: grid;
+      grid-template-columns: 80px 1fr 74px;
+      gap: 10px;
+      align-items: center;
+      font: 12px var(--mono);
+      color: var(--muted);
+    }
+    .bar {
+      position: relative;
+      height: 14px;
+      border-radius: 999px;
+      overflow: hidden;
+      background: rgba(255,255,255,0.06);
+    }
+    .bar span { position: absolute; inset-block: 0; border-radius: 999px; background: linear-gradient(90deg, rgba(107,228,255,0.8), rgba(155,140,255,0.8)); }
+    .bar.bad span { background: linear-gradient(90deg, rgba(255,155,84,0.92), rgba(255,105,120,0.92)); }
+    .bar.warn span { background: linear-gradient(90deg, rgba(255,211,107,0.92), rgba(255,155,84,0.92)); }
+
+    .inspector .panel-header {
+      background:
+        radial-gradient(circle at 100% 0, rgba(107,228,255,0.12), transparent 15rem),
+        rgba(12,16,35,0.35);
+    }
+    .selected-title { display: flex; align-items: center; gap: 12px; }
+    .selected-title .avatar {
+      width: 42px; height: 42px; border-radius: 15px; display: grid; place-items: center;
+      background: rgba(107,228,255,0.13); border: 1px solid rgba(107,228,255,0.24);
+    }
+    .selected-title h2 { margin: 0; font-size: 15px; }
+    .selected-title small { display: block; color: var(--muted); margin-top: 3px; font-family: var(--mono); }
+
+    .tabs { display: flex; gap: 7px; margin-top: 14px; }
+    .tab {
+      flex: 1;
+      color: #bfc9e5;
+      padding: 9px 7px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.09);
+      background: rgba(255,255,255,0.045);
+      font-size: 12px;
+    }
+    .tab.active { color: #07111e; background: linear-gradient(135deg, var(--accent), #b5f2ff); font-weight: 800; }
+
+    .detail-card {
+      padding: 14px;
+      margin-bottom: 12px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.055);
+      border: 1px solid rgba(255,255,255,0.10);
+    }
+    .detail-card h3 { margin: 0 0 10px; font-size: 13px; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .kv-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+    .kv {
+      padding: 10px;
+      border-radius: 13px;
+      background: rgba(0,0,0,0.13);
+      border: 1px solid rgba(255,255,255,0.07);
+      min-width: 0;
+    }
+    .kv span { display: block; color: var(--muted); font-size: 11px; margin-bottom: 5px; }
+    .kv strong { font-size: 13px; word-break: break-word; }
+
+    .var-row, .stack-row {
+      display: grid;
+      grid-template-columns: 84px 1fr auto;
+      gap: 8px;
+      align-items: start;
+      padding: 10px 0;
+      border-top: 1px solid rgba(255,255,255,0.08);
+      font-size: 12px;
+    }
+    .var-row:first-of-type, .stack-row:first-of-type { border-top: 0; }
+    .var-name { color: #dce6ff; font-family: var(--mono); }
+    .var-val { color: #b7c3df; font-family: var(--mono); word-break: break-word; }
+    .var-chip { border-radius: 999px; padding: 3px 7px; background: rgba(255,255,255,0.07); color: var(--muted); font-size: 10px; }
+    .var-chip.changed { color: #ffe7b0; background: rgba(255,211,107,0.12); }
+    .var-chip.bad { color: #ffd5dc; background: rgba(255,105,120,0.14); }
+
+    .code-card {
+      overflow: hidden;
+      padding: 0;
+    }
+    .code-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 11px 13px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: var(--muted);
+      font: 12px var(--mono);
+    }
+    pre {
+      margin: 0;
+      padding: 12px 0;
+      overflow: auto;
+      background: rgba(0,0,0,0.14);
+      font: 12px/1.55 var(--mono);
+      color: #c9d7f2;
+      max-height: 280px;
+    }
+    .code-line { display: grid; grid-template-columns: 44px 1fr; gap: 12px; padding: 0 14px 0 0; }
+    .code-line .ln { text-align: right; color: rgba(141,153,182,0.72); user-select: none; }
+    .code-line.hot { background: rgba(255,105,120,0.13); color: #ffe5e9; }
+    .code-line.focus { background: rgba(107,228,255,0.09); }
+
+    .ai-card {
+      border-color: rgba(107,228,255,0.20);
+      background:
+        radial-gradient(circle at 0 0, rgba(107,228,255,0.10), transparent 14rem),
+        rgba(255,255,255,0.055);
+    }
+    .ai-card p { margin: 0; color: #bfd0ef; line-height: 1.45; font-size: 12px; }
+    .confidence {
+      margin-top: 12px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .confidence .track { height: 7px; border-radius: 999px; background: rgba(255,255,255,0.08); overflow: hidden; }
+    .confidence .fill { width: 82%; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--accent), var(--good)); }
+
+    .legend {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 11px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 5px; }
+    .legend i { width: 9px; height: 9px; border-radius: 50%; background: var(--accent); display: inline-block; }
+    .legend i.bad { background: var(--bad); }
+    .legend i.warn { background: var(--warn); }
+    .legend i.lock { background: var(--violet); }
+
+    .toast {
+      position: fixed;
+      left: 50%;
+      bottom: 20px;
+      transform: translateX(-50%) translateY(20px);
+      z-index: 20;
+      padding: 12px 16px;
+      border-radius: 999px;
+      border: 1px solid rgba(107,228,255,0.28);
+      background: rgba(12,16,35,0.92);
+      color: #dff7ff;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 180ms ease, transform 180ms ease;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(16px);
+      font-size: 13px;
+    }
+    .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+    @media (max-width: 1260px) {
+      header { grid-template-columns: 260px 1fr; }
+      header .hero-actions-top { display: none; }
+      .main { grid-template-columns: 260px 1fr; }
+      .inspector { position: fixed; right: 16px; top: 88px; bottom: 16px; width: min(430px, calc(100vw - 32px)); z-index: 6; transform: translateX(calc(100% + 20px)); transition: transform 200ms ease; }
+      .inspector.open { transform: translateX(0); }
+      .metric-row { grid-template-columns: repeat(3, 1fr); }
+    }
+    @media (max-width: 840px) {
+      body { overflow: auto; }
+      .app-shell { height: auto; min-height: 100vh; }
+      header { position: sticky; top: 0; grid-template-columns: 1fr; }
+      .omnibar { grid-template-columns: 1fr; }
+      .main { grid-template-columns: 1fr; padding: 12px; }
+      .sidebar { display: none; }
+      .metric-row { grid-template-columns: 1fr 1fr; }
+      .hero-top { flex-direction: column; }
+      .center { min-height: 1180px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="ambient-grid" aria-hidden="true"></div>
+  <div class="app-shell">
+    <header>
+      <div class="brand" aria-label="ApexTrace Flow">
+        <div class="brand-mark">AT</div>
+        <div>
+          <h1>ApexTrace Flow</h1>
+          <small>Repo-aware Salesforce FINEST log explorer</small>
+        </div>
+      </div>
+      <div class="omnibar">
+        <div class="search">
+          <span class="icon">⌕</span>
+          <input id="globalSearch" aria-label="Search logs" placeholder="Search class, method, variable, SOQL, exception, transaction id..." />
+          <span class="kbd">⌘K</span>
+        </div>
+        <div class="pill"><span>Namespace</span> <b>pkg_core</b></div>
+        <div class="pill"><span>Branch</span> <b>release/2.18</b></div>
+      </div>
+      <div class="hero-actions hero-actions-top">
+        <button class="ghost-btn" id="repoBtn">⎇ Connect repo</button>
+        <button class="primary-btn" id="uploadBtn">⬆ Upload logs</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <aside class="panel sidebar" aria-label="Trace sessions">
+        <div class="panel-header">
+          <div class="panel-title">
+            <h2>Trace sessions</h2>
+            <span class="mini-badge bad">3 issues</span>
+          </div>
+          <p class="panel-subtitle">Upload one log or a folder of subscriber logs. The UI groups entries into transactions, actions, and exception paths.</p>
+          <div class="upload-drop">
+            <strong>Drop .log files here</strong>
+            <span>Prototype state: sample managed-package trace loaded.</span>
+          </div>
+        </div>
+        <div class="sidebar-body">
+          <div class="section-label">Open traces <span>12</span></div>
+          <button class="trace-card active">
+            <div class="row"><strong>Checkout renewal action</strong><span class="mini-badge bad">Failed</span></div>
+            <small>EXECUTION_STARTED → pkg_core.SubscriptionAction.run → NullPointerException</small>
+          </button>
+          <button class="trace-card">
+            <div class="row"><strong>Nightly entitlement sync</strong><span class="mini-badge warn">Slow</span></div>
+            <small>Batch execute · 8,214 rows · 72% CPU consumed in pricing library</small>
+          </button>
+          <button class="trace-card">
+            <div class="row"><strong>Case trigger after update</strong><span class="mini-badge good">Passed</span></div>
+            <small>Trigger → domain layer → async enqueue · no exception</small>
+          </button>
+
+          <div class="section-label">Filters <span>live</span></div>
+          <div class="filter-grid">
+            <button class="filter-chip on">Exception path</button>
+            <button class="filter-chip">All events</button>
+            <button class="filter-chip on">Your repo</button>
+            <button class="filter-chip">Managed only</button>
+            <button class="filter-chip">SOQL</button>
+            <button class="filter-chip">DML</button>
+          </div>
+
+          <div class="section-label">Hotspots <span>ranked</span></div>
+          <button class="trace-card" data-select="dml">
+            <div class="row"><strong>DML side effect</strong><span class="mini-badge warn">42 ms</span></div>
+            <small>Account update fires downstream trigger before pricing response is validated.</small>
+          </button>
+          <button class="trace-card" data-select="managed">
+            <div class="row"><strong>Opaque package call</strong><span class="mini-badge">locked</span></div>
+            <small>otherpkg.PricingGateway.quote is visible as boundary only.</small>
+          </button>
+          <button class="trace-card" data-select="exception">
+            <div class="row"><strong>Root exception</strong><span class="mini-badge bad">line 184</span></div>
+            <small>response.discount is null after global quote call returned partial payload.</small>
+          </button>
+        </div>
+      </aside>
+
+      <section class="center" aria-label="Trace flow canvas">
+        <div class="hero">
+          <div class="hero-top">
+            <div>
+              <div class="crumbs">Subscriber org <span>›</span> Managed package <span>›</span> Checkout Action <span>›</span> Exception path</div>
+              <h2>Start at the action. Drill down to the <span>failing line.</span></h2>
+              <p>The prototype treats the log like an executable story: action entry, method calls, global package boundaries, variable changes, DML/SOQL, and the exact frame where the exception is thrown.</p>
+            </div>
+            <div class="hero-actions">
+              <button class="ghost-btn" id="focusBtn">◎ Focus exception path</button>
+              <button class="primary-btn" id="shareBtn">✦ Generate incident view</button>
+            </div>
+          </div>
+          <div class="metric-row">
+            <div class="metric"><span>Outcome</span><strong style="color:var(--bad)">Failed</strong></div>
+            <div class="metric"><span>CPU time</span><strong>7,820 <em>ms</em></strong></div>
+            <div class="metric"><span>Log size</span><strong>18.6 <em>MB</em></strong></div>
+            <div class="metric"><span>Call depth</span><strong>17 <em>frames</em></strong></div>
+            <div class="metric"><span>Blind spots</span><strong>2 <em>global calls</em></strong></div>
+          </div>
+        </div>
+
+        <div class="panel canvas-panel">
+          <div class="canvas-toolbar">
+            <div class="view-tabs" role="tablist">
+              <button class="view-tab active">Flow</button>
+              <button class="view-tab">Stack</button>
+              <button class="view-tab">Variables</button>
+              <button class="view-tab">Raw log</button>
+            </div>
+            <div class="legend">
+              <span><i></i> repo code</span>
+              <span><i class="lock"></i> managed boundary</span>
+              <span><i class="warn"></i> side effect</span>
+              <span><i class="bad"></i> exception</span>
+            </div>
+            <div class="zoom-actions">
+              <button class="icon-btn" id="minusBtn">−</button>
+              <button class="icon-btn" id="plusBtn">＋</button>
+            </div>
+          </div>
+
+          <div class="canvas-scroll">
+            <div class="flow-stage" id="flowStage">
+              <div class="branch-line b1"></div>
+              <div class="branch-line b2"></div>
+              <div class="branch-label b1">trigger side effect</div>
+              <div class="branch-label b2">opaque package call</div>
+
+              <div class="node-col">
+                <button class="flow-node active" data-node="action">
+                  <div class="node-icon">⚡</div>
+                  <h3>Action invoked</h3>
+                  <div class="meta">SubscriptionRenewal.flowAction<br/>00:00:00.012</div>
+                  <div class="node-footer"><span><span class="risk-dot"></span>ACTION_ENTRY</span><span>0.8 ms</span></div>
+                </button>
+              </div>
+
+              <div class="node-col">
+                <button class="flow-node" data-node="controller">
+                  <div class="node-icon">⌘</div>
+                  <h3>Controller dispatch</h3>
+                  <div class="meta">pkg_core.SubscriptionAction.run<br/>line 62</div>
+                  <div class="node-footer"><span><span class="risk-dot"></span>METHOD_ENTRY</span><span>14 ms</span></div>
+                </button>
+              </div>
+
+              <div class="node-col">
+                <button class="flow-node" data-node="service">
+                  <div class="node-icon">▣</div>
+                  <h3>Service resolves renewal</h3>
+                  <div class="meta">RenewalService.prepareQuote<br/>line 128</div>
+                  <div class="node-footer"><span><span class="risk-dot"></span>SOQL 2</span><span>318 ms</span></div>
+                </button>
+                <button class="sub-node" data-node="soql"><strong>SOQL query</strong><small>SELECT Id, Plan__c, Discount__c FROM Subscription__c</small></button>
+              </div>
+
+              <div class="node-col">
+                <button class="flow-node blackbox" data-node="managed">
+                  <div class="node-icon">🔒</div>
+                  <h3>Global managed call</h3>
+                  <div class="meta">otherpkg.PricingGateway.quote<br/>details hidden</div>
+                  <div class="node-footer"><span><span class="risk-dot warn"></span>PACKAGE_BOUNDARY</span><span>5,914 ms</span></div>
+                </button>
+                <button class="sub-node" data-node="dml"><strong>DML side effect</strong><small>UPDATE Account triggers after-update automation</small></button>
+              </div>
+
+              <div class="node-col">
+                <button class="flow-node" data-node="mapper">
+                  <div class="node-icon">↯</div>
+                  <h3>Map pricing response</h3>
+                  <div class="meta">RenewalService.applyQuote<br/>line 177</div>
+                  <div class="node-footer"><span><span class="risk-dot warn"></span>NULL_CHECK_MISSING</span><span>43 ms</span></div>
+                </button>
+              </div>
+
+              <div class="node-col">
+                <button class="flow-node exception" data-node="exception">
+                  <div class="node-icon">!</div>
+                  <h3>Exception thrown</h3>
+                  <div class="meta">System.NullPointerException<br/>RenewalService.cls:184</div>
+                  <div class="node-footer"><span><span class="risk-dot bad"></span>FATAL_ERROR</span><span>root</span></div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="waterfall">
+          <div class="waterfall-head">
+            <h3>Transaction waterfall</h3>
+            <span class="mini-badge">07:42:18.104 → 07:42:26.068</span>
+          </div>
+          <div class="waterfall-grid">
+            <div>Action</div><div class="bar"><span style="left:0%;width:7%"></span></div><div>14 ms</div>
+            <div>Service</div><div class="bar"><span style="left:8%;width:24%"></span></div><div>318 ms</div>
+            <div>Pricing</div><div class="bar warn"><span style="left:32%;width:54%"></span></div><div>5.9 s</div>
+            <div>DML</div><div class="bar"><span style="left:55%;width:11%"></span></div><div>42 ms</div>
+            <div>Exception</div><div class="bar bad"><span style="left:87%;width:11%"></span></div><div>line 184</div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel inspector open" aria-label="Frame inspector">
+        <div class="panel-header">
+          <div class="selected-title">
+            <div class="avatar" id="selectedIcon">⚡</div>
+            <div>
+              <h2 id="selectedTitle">Action invoked</h2>
+              <small id="selectedLocation">SubscriptionRenewal.flowAction</small>
+            </div>
+          </div>
+          <div class="tabs">
+            <button class="tab active">Frame</button>
+            <button class="tab">Source</button>
+            <button class="tab">Raw log</button>
+          </div>
+        </div>
+        <div class="inspector-body" id="inspectorBody"></div>
+      </aside>
+    </main>
+  </div>
+  <div class="toast" id="toast">Prototype interaction</div>
+
+  <script>
+    const nodeData = {
+      action: {
+        icon: '⚡', title: 'Action invoked', location: 'SubscriptionRenewal.flowAction',
+        summary: 'Flow action received subscriptionId and context from the subscriber org. This is the entry point users should see first, rather than starting in raw log noise.',
+        kv: [['Event', 'EXECUTION_STARTED'], ['Time', '07:42:18.104'], ['User', 'integration@subscriber'], ['Entry', 'Flow Action']],
+        vars: [['subscriptionId', 'a09xx000001RTS9', 'input'], ['renewalDate', '2026-06-30', 'input'], ['context.source', 'Flow', 'input']],
+        stack: ['SubscriptionRenewal.flowAction', 'pkg_core.SubscriptionAction.run:62'],
+        codeTitle: 'Flow action payload', hotLine: 3,
+        code: ['{', '  "action": "Renew Subscription",', '  "subscriptionId": "a09xx000001RTS9",', '  "renewalDate": "2026-06-30",', '  "source": "Flow"', '}'],
+        advice: 'Anchor the user at the business action, then progressively reveal stack frames. This keeps the failure narrative understandable for admins and engineers.'
+      },
+      controller: {
+        icon: '⌘', title: 'Controller dispatch', location: 'pkg_core.SubscriptionAction.run:62',
+        summary: 'The invocable action validates request shape and delegates to the renewal service. No suspicious variable changes are visible here.',
+        kv: [['Class', 'SubscriptionAction'], ['Method', 'run(List<Request>)'], ['CPU', '14 ms'], ['Namespace', 'pkg_core']],
+        vars: [['requests.size()', '1', 'unchanged'], ['req.subscriptionId', 'a09xx000001RTS9', 'input'], ['req.previewOnly', 'false', 'input']],
+        stack: ['pkg_core.SubscriptionAction.run:62', 'pkg_core.RenewalService.prepareQuote:128'],
+        codeTitle: 'SubscriptionAction.cls', hotLine: 4,
+        code: ['public with sharing class SubscriptionAction {', '  @InvocableMethod(label=\'Renew Subscription\')', '  public static List<Result> run(List<Request> requests) {', '    return RenewalService.prepareQuote(requests[0]);', '  }', '}'],
+        advice: 'This frame is a clean handoff. The UI should mark it as low risk and let users continue down the exception path.'
+      },
+      service: {
+        icon: '▣', title: 'Service resolves renewal', location: 'pkg_core.RenewalService.prepareQuote:128',
+        summary: 'The service loads subscription state and prepares a pricing request. The query returned a subscription with a missing Discount__c value.',
+        kv: [['Class', 'RenewalService'], ['SOQL', '2 queries'], ['Rows', '1 subscription'], ['CPU', '318 ms']],
+        vars: [['sub.Plan__c', 'Enterprise', 'input'], ['sub.Discount__c', 'null', 'changed'], ['quoteReq.discount', 'null', 'changed']],
+        stack: ['RenewalService.prepareQuote:128', 'PricingGateway.quote'],
+        codeTitle: 'RenewalService.cls', hotLine: 5,
+        code: ['Subscription__c sub = loadSubscription(req.subscriptionId);', 'QuoteRequest quoteReq = new QuoteRequest();', 'quoteReq.plan = sub.Plan__c;', 'quoteReq.seats = sub.Seats__c;', 'quoteReq.discount = sub.Discount__c;', 'return PricingGateway.quote(quoteReq);'],
+        advice: 'Surface nullable input values before the black-box package call. This helps users see whether the hidden call produced the issue or only exposed it.'
+      },
+      soql: {
+        icon: '☷', title: 'SOQL query', location: 'RenewalRepository.loadSubscription',
+        summary: 'Repository mapping shows the database values that became method variables. Discount__c is null before pricing is called.',
+        kv: [['Operation', 'SOQL'], ['Rows', '1'], ['Duration', '87 ms'], ['Selectivity', 'Id lookup']],
+        vars: [['Id', 'a09xx000001RTS9', 'row'], ['Plan__c', 'Enterprise', 'row'], ['Discount__c', 'null', 'row']],
+        stack: ['RenewalRepository.loadSubscription:44', 'RenewalService.prepareQuote:128'],
+        codeTitle: 'SOQL result', hotLine: 3,
+        code: ['SELECT Id, Plan__c, Seats__c, Discount__c', 'FROM Subscription__c', 'WHERE Id = :subscriptionId', 'LIMIT 1'],
+        advice: 'For log-driven debugging, query rows should be normalized into a small before/after table instead of buried in USER_DEBUG text.'
+      },
+      managed: {
+        icon: '🔒', title: 'Global managed call', location: 'otherpkg.PricingGateway.quote',
+        summary: 'This call is outside the connected repo and is displayed as a package boundary. The tool should keep timing and in/out values while avoiding fake source-code detail.',
+        kv: [['Boundary', 'Managed package'], ['Visibility', 'global only'], ['Duration', '5,914 ms'], ['Risk', 'Opaque']],
+        vars: [['quoteReq.discount', 'null', 'sent'], ['response.status', 'PARTIAL', 'returned'], ['response.discount', 'null', 'returned']],
+        stack: ['RenewalService.prepareQuote:142', 'otherpkg.PricingGateway.quote', 'RenewalService.applyQuote:177'],
+        codeTitle: 'Package boundary', hotLine: 2,
+        code: ['// Source unavailable in subscriber repo', 'QuoteResponse response = otherpkg.PricingGateway.quote(quoteReq);', '// Keep timing, input/output, and namespace metadata'],
+        advice: 'Represent hidden package code honestly as a locked node. The useful insight is the contract: input values, visible outputs, elapsed time, and next visible frame.'
+      },
+      dml: {
+        icon: '⇄', title: 'DML side effect', location: 'AccountTrigger.afterUpdate',
+        summary: 'A downstream account update occurs during pricing. It is not the root exception, but it is a relevant side branch and performance hotspot.',
+        kv: [['Operation', 'UPDATE Account'], ['Rows', '1'], ['Trigger', 'after update'], ['Duration', '42 ms']],
+        vars: [['Account.Status__c', 'Active → Renewal Pending', 'changed'], ['Entitlement__c', 'recalculated', 'changed'], ['root cause?', 'No', 'note']],
+        stack: ['PricingGateway.quote', 'AccountTrigger.afterUpdate', 'EntitlementSync.enqueue'],
+        codeTitle: 'Side effect branch', hotLine: 1,
+        code: ['update accountToMarkRenewalPending;', 'EntitlementSync.enqueue(accountId);'],
+        advice: 'Side branches should remain visible, but visually de-emphasized when the user is in exception-first mode.'
+      },
+      mapper: {
+        icon: '↯', title: 'Map pricing response', location: 'pkg_core.RenewalService.applyQuote:177',
+        summary: 'The response object exists, but response.discount is null. The next line dereferences fields without a guard.',
+        kv: [['Class', 'RenewalService'], ['Method', 'applyQuote'], ['CPU', '43 ms'], ['Risk', 'Null guard missing']],
+        vars: [['response.status', 'PARTIAL', 'changed'], ['response.discount', 'null', 'bad'], ['renewal.Amount__c', 'not assigned', 'pending']],
+        stack: ['RenewalService.applyQuote:177', 'RenewalService.saveRenewal:205'],
+        codeTitle: 'RenewalService.cls', hotLine: 5,
+        code: ['private static Renewal__c applyQuote(QuoteResponse response) {', '  Renewal__c renewal = new Renewal__c();', '  renewal.Status__c = response.status;', '  renewal.Amount__c = response.total;', '  renewal.Discount__c = response.discount.value;', '  return renewal;', '}'],
+        advice: 'This is the best frame for a code-linked recommendation: guard response.discount or normalize partial pricing responses before mapping.'
+      },
+      exception: {
+        icon: '!', title: 'Exception thrown', location: 'pkg_core.RenewalService.cls:184',
+        summary: 'System.NullPointerException occurs when mapping response.discount.value. The path indicates a nullable discount came from subscriber data and remained null through the package boundary.',
+        kv: [['Exception', 'NullPointerException'], ['Line', '184'], ['Frame', 'RenewalService.applyQuote'], ['Confidence', '82%']],
+        vars: [['response', 'QuoteResponse{status=PARTIAL}', 'input'], ['response.discount', 'null', 'bad'], ['response.discount.value', 'dereference failed', 'bad']],
+        stack: ['RenewalService.applyQuote:184', 'RenewalService.prepareQuote:146', 'SubscriptionAction.run:62', 'SubscriptionRenewal.flowAction'],
+        codeTitle: 'RenewalService.cls', hotLine: 5,
+        code: ['private static Renewal__c applyQuote(QuoteResponse response) {', '  Renewal__c renewal = new Renewal__c();', '  renewal.Status__c = response.status;', '  renewal.Amount__c = response.total;', '  renewal.Discount__c = response.discount.value;', '  return renewal;', '}'],
+        advice: 'Likely fix: add a null-safe mapper and validation message before saving renewal: response.discount == null ? Decimal.ZERO : response.discount.value.'
+      }
+    };
+
+    const inspector = document.getElementById('inspectorBody');
+    const selectedIcon = document.getElementById('selectedIcon');
+    const selectedTitle = document.getElementById('selectedTitle');
+    const selectedLocation = document.getElementById('selectedLocation');
+    const toast = document.getElementById('toast');
+
+    function escapeHtml(str) {
+      return String(str).replace(/[&<>'"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#039;','"':'&quot;'}[c]));
+    }
+
+    function renderCode(lines, hotLine) {
+      return lines.map((line, idx) => {
+        const n = idx + 1;
+        const cls = n === hotLine ? 'code-line hot' : (Math.abs(n - hotLine) === 1 ? 'code-line focus' : 'code-line');
+        return `<div class="${cls}"><span class="ln">${n}</span><span>${escapeHtml(line)}</span></div>`;
+      }).join('');
+    }
+
+    function renderDetails(id) {
+      const data = nodeData[id] || nodeData.action;
+      selectedIcon.textContent = data.icon;
+      selectedTitle.textContent = data.title;
+      selectedLocation.textContent = data.location;
+
+      inspector.innerHTML = `
+        <div class="detail-card ai-card">
+          <h3>Trace explanation <span class="mini-badge">AI draft</span></h3>
+          <p>${escapeHtml(data.summary)}</p>
+          <div class="confidence"><div class="track"><div class="fill"></div></div><span>82% signal</span></div>
+        </div>
+
+        <div class="detail-card">
+          <h3>Frame metadata</h3>
+          <div class="kv-grid">
+            ${data.kv.map(([k,v]) => `<div class="kv"><span>${escapeHtml(k)}</span><strong>${escapeHtml(v)}</strong></div>`).join('')}
+          </div>
+        </div>
+
+        <div class="detail-card">
+          <h3>Variables at this frame <span class="mini-badge">diffed</span></h3>
+          ${data.vars.map(([k,v,t]) => `<div class="var-row"><div class="var-name">${escapeHtml(k)}</div><div class="var-val">${escapeHtml(v)}</div><span class="var-chip ${t === 'changed' ? 'changed' : t === 'bad' ? 'bad' : ''}">${escapeHtml(t)}</span></div>`).join('')}
+        </div>
+
+        <div class="detail-card code-card">
+          <div class="code-toolbar"><span>${escapeHtml(data.codeTitle)}</span><span>${escapeHtml(data.location)}</span></div>
+          <pre>${renderCode(data.code, data.hotLine)}</pre>
+        </div>
+
+        <div class="detail-card">
+          <h3>Call stack</h3>
+          ${data.stack.map((s, idx) => `<div class="stack-row"><div class="var-name">#${idx + 1}</div><div class="var-val">${escapeHtml(s)}</div><span class="var-chip">frame</span></div>`).join('')}
+        </div>
+
+        <div class="detail-card ai-card">
+          <h3>Suggested product behavior</h3>
+          <p>${escapeHtml(data.advice)}</p>
+        </div>
+      `;
+    }
+
+    function showToast(message) {
+      toast.textContent = message;
+      toast.classList.add('show');
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove('show'), 1900);
+    }
+
+    function selectNode(id) {
+      document.querySelectorAll('[data-node]').forEach(el => el.classList.toggle('active', el.dataset.node === id));
+      renderDetails(id);
+      showToast(`Selected ${nodeData[id]?.title || 'frame'}`);
+      const inspectorPanel = document.querySelector('.inspector');
+      if (window.matchMedia('(max-width: 1260px)').matches) inspectorPanel.classList.add('open');
+    }
+
+    document.querySelectorAll('[data-node], [data-select]').forEach(el => {
+      el.addEventListener('click', () => selectNode(el.dataset.node || el.dataset.select));
+    });
+
+    document.getElementById('focusBtn').addEventListener('click', () => {
+      ['action','controller','service','managed','mapper','exception'].forEach((id, index) => {
+        const el = document.querySelector(`[data-node="${id}"]`);
+        if (el) {
+          el.animate([
+            { transform: 'translateY(0)', boxShadow: '0 0 0 rgba(107,228,255,0)' },
+            { transform: 'translateY(-8px)', boxShadow: '0 0 36px rgba(107,228,255,0.20)' },
+            { transform: 'translateY(0)', boxShadow: '0 0 0 rgba(107,228,255,0)' }
+          ], { duration: 620, delay: index * 80, easing: 'ease-out' });
+        }
+      });
+      selectNode('exception');
+    });
+
+    document.getElementById('shareBtn').addEventListener('click', () => showToast('Incident view drafted: root path + variables + source lines'));
+    document.getElementById('repoBtn').addEventListener('click', () => showToast('Repo connection mock: GitHub / SFDX source map'));
+    document.getElementById('uploadBtn').addEventListener('click', () => showToast('Upload mock: .log parser queued'));
+    document.getElementById('plusBtn').addEventListener('click', () => showToast('Zoom in mock'));
+    document.getElementById('minusBtn').addEventListener('click', () => showToast('Zoom out mock'));
+
+    document.getElementById('globalSearch').addEventListener('input', (e) => {
+      const q = e.target.value.trim().toLowerCase();
+      document.querySelectorAll('.flow-node, .sub-node').forEach(el => {
+        const hit = !q || el.textContent.toLowerCase().includes(q);
+        el.style.opacity = hit ? '1' : '0.28';
+      });
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        document.getElementById('globalSearch').focus();
+      }
+      if (e.key === 'Escape') document.querySelector('.inspector').classList.remove('open');
+    });
+
+    renderDetails('action');
+  </script>
+</body>
+</html>

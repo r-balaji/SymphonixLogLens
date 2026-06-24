@@ -1,0 +1,86 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Symphonix Log Lens — AWS App Runner service.
+  Runs the single-container Node app (API + built frontend) from an ECR image.
+  Pinned to one instance because repo indexes and cloned source live in the
+  instance's memory and /tmp (see CODE-FLOW.md). Scale-out needs externalized
+  state first.
+
+Parameters:
+  ImageUri:
+    Type: String
+    Description: >
+      Full ECR image URI including tag, e.g.
+      123456789012.dkr.ecr.us-east-1.amazonaws.com/logplaybook:latest
+  ServiceName:
+    Type: String
+    Default: symphonix-log-lens
+  Cpu:
+    Type: String
+    Default: "1 vCPU"
+    AllowedValues: ["0.25 vCPU", "0.5 vCPU", "1 vCPU", "2 vCPU", "4 vCPU"]
+  Memory:
+    Type: String
+    Default: "2 GB"
+    AllowedValues: ["0.5 GB", "1 GB", "2 GB", "3 GB", "4 GB", "6 GB", "8 GB", "10 GB", "12 GB"]
+
+Resources:
+  # Role App Runner assumes to pull the image from ECR.
+  AccessRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: build.apprunner.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AWSAppRunnerServicePolicyForECRAccess
+
+  # Pin min = max = 1 instance: the app holds per-process state (repo index +
+  # /tmp clones), so multiple instances would serve inconsistent source links.
+  AutoScaling:
+    Type: AWS::AppRunner::AutoScalingConfiguration
+    Properties:
+      AutoScalingConfigurationName: !Sub "${ServiceName}-single"
+      MinSize: 1
+      MaxSize: 1
+
+  Service:
+    Type: AWS::AppRunner::Service
+    Properties:
+      ServiceName: !Ref ServiceName
+      AutoScalingConfigurationArn: !Ref AutoScaling
+      SourceConfiguration:
+        AutoDeploymentsEnabled: true   # redeploy when the :tag image is pushed
+        AuthenticationConfiguration:
+          AccessRoleArn: !GetAtt AccessRole.Arn
+        ImageRepository:
+          ImageRepositoryType: ECR
+          ImageIdentifier: !Ref ImageUri
+          ImageConfiguration:
+            Port: "8080"
+            RuntimeEnvironmentVariables:
+              - Name: NODE_ENV
+                Value: production
+      InstanceConfiguration:
+        Cpu: !Ref Cpu
+        Memory: !Ref Memory
+      HealthCheckConfiguration:
+        Protocol: HTTP
+        Path: /api/health
+        Interval: 10
+        Timeout: 5
+        HealthyThreshold: 1
+        UnhealthyThreshold: 5
+      # NetworkConfiguration omitted -> public ingress + public egress (default).
+      # For "internal only" later: add IngressConfiguration with a VPC endpoint.
+
+Outputs:
+  ServiceUrl:
+    Description: Public HTTPS URL of the app
+    Value: !Sub "https://${Service.ServiceUrl}"
+  ServiceArn:
+    Value: !GetAtt Service.ServiceArn

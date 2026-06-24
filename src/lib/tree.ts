@@ -67,38 +67,6 @@ export function meaningfulValues(n: CallNode): ValueAssignment[] {
 }
 
 /**
- * The "carried context": for each ancestor along the path (excluding the focused
- * node itself), the meaningful values that layer established. This is what the
- * developer accumulates while peeling down through the call stack.
- */
-export interface ContextLayer {
-  node: CallNode;
-  values: ValueAssignment[];
-}
-
-export function carriedContext(path: CallNode[]): ContextLayer[] {
-  const layers: ContextLayer[] = [];
-  // All ancestors except the focused (last) node.
-  for (let i = 0; i < path.length - 1; i++) {
-    const node = path[i];
-    const values = meaningfulValues(node);
-    if (values.length > 0 || node.kind === "root") {
-      layers.push({ node, values });
-    }
-  }
-  return layers;
-}
-
-/** Does this subtree contain any error-level debug or managed-pkg? (small signal aid) */
-export function subtreeFlags(n: CallNode): { hasError: boolean } {
-  let hasError = n.debugs.some((d) => /error|fatal/i.test(d.level));
-  for (const c of n.children) {
-    if (subtreeFlags(c).hasError) hasError = true;
-  }
-  return { hasError };
-}
-
-/**
  * The distinct home/foreign class names invoked anywhere inside a subtree
  * (excluding the node itself), most-frequent first. Lets a card show
  * "touches: LoanAccountDomainObject, EMI, …" so the developer can see what
@@ -120,34 +88,6 @@ export function subtreeTouches(n: CallNode, max = 5): { names: string[]; total: 
   walk(n, true);
   const sorted = [...counts.entries()].sort((a, b) => b[1] - a[1]);
   return { names: sorted.slice(0, max).map(([name]) => name), total: counts.size };
-}
-
-export interface SearchHit {
-  node: CallNode;
-  label: string;
-}
-
-/** Flat search across class/method names and value names/values. */
-export function searchTree(root: CallNode, query: string, limit = 40): SearchHit[] {
-  const q = query.trim().toLowerCase();
-  if (!q) return [];
-  const hits: SearchHit[] = [];
-  const walk = (n: CallNode) => {
-    if (hits.length >= limit) return;
-    const inName =
-      (n.className ?? "").toLowerCase().includes(q) ||
-      (n.method ?? "").toLowerCase().includes(q) ||
-      (n.namespace ?? "").toLowerCase().includes(q);
-    const inVals = n.assignments.some(
-      (a) => a.name.toLowerCase().includes(q) || a.value.toLowerCase().includes(q),
-    );
-    if ((inName || inVals) && n.kind !== "root") {
-      hits.push({ node: n, label: label(n) });
-    }
-    for (const c of n.children) walk(c);
-  };
-  walk(root);
-  return hits;
 }
 
 /** One waterfall lane: a class, spanning its first→last call, sized by total time. */
@@ -228,15 +168,6 @@ export function waterfallByClass(root: CallNode): WaterfallRow[] {
 }
 
 /**
- * "Hotness" of a node relative to a budget — used to auto-highlight the calls
- * that dominate wall-clock time (e.g. a 5.84s insertRecords). Returns 0..1.
- */
-export function hotness(node: CallNode, totalNanos: number | null): number {
-  if (!totalNanos || node.durationNanos === null) return 0;
-  return Math.min(1, node.durationNanos / totalNanos);
-}
-
-/**
  * A noise filter. `value` matches against a node's namespace, class, method, or
  * "Class.method". A trailing/leading `*` is treated as a wildcard; otherwise it
  * is a case-insensitive substring match so "clcommon" hides the whole package
@@ -266,7 +197,7 @@ function matchesFilter(n: CallNode, f: Filter): boolean {
   return candidates.some((c) => c.includes(needle));
 }
 
-export function isHidden(n: CallNode, filters: Filter[]): boolean {
+function isHidden(n: CallNode, filters: Filter[]): boolean {
   return n.kind !== "root" && filters.some((f) => matchesFilter(n, f));
 }
 
@@ -311,23 +242,6 @@ export function valueTimeline(root: CallNode, query: string): TimelineEntry[] {
   };
   walk(root);
   return entries;
-}
-
-/** Distinct assignment names in the tree, for the timeline picker (frequency-ranked). */
-export function assignmentNames(root: CallNode, max = 200): { name: string; count: number }[] {
-  const counts = new Map<string, number>();
-  const walk = (n: CallNode) => {
-    for (const a of n.assignments) {
-      if (a.name === "this") continue;
-      counts.set(a.name, (counts.get(a.name) ?? 0) + 1);
-    }
-    for (const c of n.children) walk(c);
-  };
-  walk(root);
-  return [...counts.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, max)
-    .map(([name, count]) => ({ name, count }));
 }
 
 /**

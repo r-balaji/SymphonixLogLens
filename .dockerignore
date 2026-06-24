@@ -1,0 +1,21 @@
+# Rebuilt inside the image
+node_modules
+dist
+tsconfig.tsbuildinfo
+
+# Never bake sample logs into the image — they contain real PII
+# (customer emails, account balances, IDs).
+*.log
+*.txt
+
+# Design prototypes / docs not needed at runtime
+format.html
+format_1.html
+docs
+
+# Local tooling
+.git
+.gitignore
+.vscode
+.idea
+*.md
