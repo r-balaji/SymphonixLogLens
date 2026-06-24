@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TraceLens — Apex Execution Trace</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0E1320; --panel:#141A2B; --panel2:#1A2138; --line:#27304D; --line-soft:#1F2740;
+  --text:#E6EAF6; --dim:#8B93AC; --faint:#5B6380;
+  --cls:#5EE3C8; --mth:#A99BFF; --soql:#5BA8FF; --dml:#FFB454; --flow:#FF8FD2; --ext:#7B86A8;
+  --ember:#FF5263; --ember-soft:rgba(255,82,99,.14); --ember-glow:rgba(255,82,99,.45);
+  --heat1:#3D9A8B; --heat2:#E0A93C; --heat3:#FF5263;
+  --mono:'JetBrains Mono',ui-monospace,Menlo,monospace;
+  --disp:'Space Grotesk',system-ui,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:13px;overflow:hidden;
+  background-image:radial-gradient(1200px 500px at 80% -10%, rgba(94,227,200,.05), transparent 60%),
+                   radial-gradient(900px 420px at 10% 110%, rgba(169,155,255,.05), transparent 60%);}
+::selection{background:rgba(169,155,255,.3)}
+button{font-family:inherit;color:inherit;background:none;border:none;cursor:pointer}
+.app{display:grid;grid-template-rows:auto auto auto 1fr;height:100vh}
+
+/* ───── header ───── */
+header{display:flex;align-items:center;gap:18px;padding:12px 20px;border-bottom:1px solid var(--line);background:rgba(20,26,43,.7);backdrop-filter:blur(6px)}
+.logo{font-family:var(--disp);font-weight:700;font-size:17px;letter-spacing:.02em;display:flex;align-items:center;gap:9px;white-space:nowrap}
+.logo .spark{width:22px;height:22px;border-radius:6px;background:conic-gradient(from 220deg,var(--ember),var(--dml),var(--cls),var(--mth),var(--ember));position:relative;flex:none}
+.logo .spark::after{content:'';position:absolute;inset:4px;border-radius:3px;background:var(--bg)}
+.logo em{font-style:normal;color:var(--ember)}
+.logmeta{display:flex;flex-direction:column;gap:2px;min-width:0}
+.logmeta .name{font-family:var(--disp);font-weight:600;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.logmeta .sub{color:var(--dim);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.limits{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap;justify-content:flex-end}
+.limit{display:flex;flex-direction:column;gap:4px;padding:6px 10px;border:1px solid var(--line-soft);border-radius:8px;background:var(--panel);min-width:92px}
+.limit .k{font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint)}
+.limit .v{font-size:11.5px}
+.limit .v b{font-weight:600;color:var(--text)}
+.limit .v span{color:var(--faint)}
+.limit .bar{height:3px;border-radius:2px;background:var(--line-soft);overflow:hidden}
+.limit .bar i{display:block;height:100%;border-radius:2px;background:linear-gradient(90deg,var(--heat1),var(--heat2))}
+.limit.hot .bar i{background:linear-gradient(90deg,var(--heat2),var(--heat3))}
+
+/* ───── exception banner ───── */
+.xbanner{display:flex;align-items:center;gap:14px;padding:9px 20px;border-bottom:1px solid rgba(255,82,99,.35);
+  background:linear-gradient(90deg,rgba(255,82,99,.16),rgba(255,82,99,.05) 55%,transparent);}
+.xbanner .pulse{width:9px;height:9px;border-radius:50%;background:var(--ember);box-shadow:0 0 0 0 var(--ember-glow);animation:pulse 2s infinite;flex:none}
+@keyframes pulse{0%{box-shadow:0 0 0 0 var(--ember-glow)}70%{box-shadow:0 0 0 9px transparent}100%{box-shadow:0 0 0 0 transparent}}
+.xbanner .xt{font-size:12px;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.xbanner .xt b{color:var(--ember);font-weight:600}
+.xbanner .xt span{color:var(--dim)}
+.btn{font-size:11.5px;padding:6px 13px;border-radius:7px;border:1px solid var(--line);background:var(--panel2);transition:.15s;white-space:nowrap}
+.btn:hover{border-color:var(--dim)}
+.btn.ember{border-color:rgba(255,82,99,.5);color:#FFC2C9;background:var(--ember-soft);margin-left:auto}
+.btn.ember:hover{box-shadow:0 0 14px var(--ember-glow);border-color:var(--ember)}
+
+/* ───── flame strip ───── */
+.flamewrap{padding:10px 20px 12px;border-bottom:1px solid var(--line);background:var(--panel)}
+.flamehead{display:flex;align-items:baseline;gap:10px;margin-bottom:8px}
+.flamehead .t{font-family:var(--disp);font-weight:600;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--dim)}
+.flamehead .ticks{margin-left:auto;color:var(--faint);font-size:10px}
+.flame{position:relative;height:124px;border-radius:8px;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),var(--line-soft) calc(10% - 1px) 10%)}
+.span{position:absolute;height:14px;border-radius:3px;opacity:.92;cursor:pointer;transition:transform .12s,box-shadow .12s;min-width:3px}
+.span:hover,.span.sel{transform:translateY(-1px);box-shadow:0 0 0 1px #fff6,0 4px 14px rgba(0,0,0,.5);opacity:1;z-index:2}
+.span.x{background:var(--ember)!important;box-shadow:0 0 12px var(--ember-glow);animation:pulse 2s infinite}
+.playhead{position:absolute;top:-4px;bottom:-4px;width:1px;background:var(--ember);opacity:.85;pointer-events:none}
+.playhead::after{content:attr(data-t);position:absolute;top:-2px;left:6px;font-size:9.5px;color:var(--ember);white-space:nowrap}
+
+/* ───── main split ───── */
+main{display:grid;grid-template-columns:minmax(420px,58%) 1fr;min-height:0}
+.tree-pane{display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--line)}
+.toolbar{display:flex;gap:10px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line-soft)}
+.search{flex:1;display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line-soft);border-radius:8px;padding:7px 11px}
+.search input{background:none;border:none;outline:none;color:var(--text);font-family:var(--mono);font-size:12px;width:100%}
+.search input::placeholder{color:var(--faint)}
+.tgl{font-size:11px;color:var(--dim);padding:6px 10px;border:1px solid var(--line-soft);border-radius:7px}
+.tgl.on{color:var(--cls);border-color:rgba(94,227,200,.4);background:rgba(94,227,200,.07)}
+.tree{flex:1;overflow:auto;padding:8px 8px 40px}
+
+/* tree nodes */
+.node{position:relative}
+.row{display:flex;align-items:center;gap:7px;padding:4px 10px 4px 0;border-radius:7px;cursor:pointer;position:relative;min-height:30px}
+.row:hover{background:rgba(255,255,255,.035)}
+.row.sel{background:var(--panel2);box-shadow:inset 0 0 0 1px var(--line)}
+.row.onpath::before{content:'';position:absolute;left:0;top:3px;bottom:3px;width:2px;border-radius:2px;
+  background:linear-gradient(var(--ember),rgba(255,82,99,.25));box-shadow:0 0 8px var(--ember-glow)}
+.chev{width:16px;height:16px;flex:none;display:grid;place-items:center;color:var(--faint);transition:transform .15s}
+.chev.open{transform:rotate(90deg)}
+.chev svg{width:9px;height:9px}
+.chev.leaf{visibility:hidden}
+.chip{flex:none;width:24px;height:18px;border-radius:5px;display:grid;place-items:center;font-size:9px;font-weight:600;letter-spacing:.03em}
+.chip.M{background:rgba(169,155,255,.16);color:var(--mth)}
+.chip.C{background:rgba(94,227,200,.14);color:var(--cls)}
+.chip.Q{background:rgba(91,168,255,.15);color:var(--soql)}
+.chip.D{background:rgba(255,180,84,.15);color:var(--dml)}
+.chip.F{background:rgba(255,143,210,.15);color:var(--flow)}
+.chip.E{background:rgba(123,134,168,.18);color:var(--ext)}
+.chip.X{background:var(--ember-soft);color:var(--ember);box-shadow:0 0 9px var(--ember-glow)}
+.lbl{min-width:0;display:flex;align-items:baseline;gap:7px;flex:1}
+.lbl .cls{color:var(--cls)}
+.lbl .dot{color:var(--faint)}
+.lbl .mth{color:var(--text)}
+.lbl .qtxt{color:var(--soql);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.lbl .xtxt{color:var(--ember);font-weight:500}
+.lbl .note{color:var(--faint);font-size:10.5px;font-style:italic;white-space:nowrap}
+.row.ghost .lbl,.row.ghost .chip{opacity:.62}
+.badges{display:flex;gap:5px;flex:none;align-items:center}
+.bdg{font-size:9.5px;color:var(--dim);border:1px solid var(--line-soft);padding:1px 6px;border-radius:5px;white-space:nowrap}
+.bdg.rows{color:var(--soql);border-color:rgba(91,168,255,.3)}
+.dur{flex:none;width:118px;display:flex;align-items:center;gap:7px;justify-content:flex-end}
+.dur .ms{font-size:10.5px;color:var(--dim);min-width:52px;text-align:right}
+.dur .hbar{width:46px;height:4px;border-radius:2px;background:var(--line-soft);overflow:hidden}
+.dur .hbar i{display:block;height:100%;border-radius:2px}
+.kids{margin-left:18px;border-left:1px solid var(--line-soft);padding-left:4px}
+.node.hidden{display:none}
+
+/* ───── inspector ───── */
+.insp{display:flex;flex-direction:column;min-height:0;background:rgba(20,26,43,.45)}
+.crumbs{display:flex;flex-wrap:wrap;gap:4px;align-items:center;padding:12px 18px 6px;font-size:11px;color:var(--dim)}
+.crumbs .c{cursor:pointer;padding:2px 6px;border-radius:5px}
+.crumbs .c:hover{background:var(--panel2);color:var(--text)}
+.crumbs .sep{color:var(--faint)}
+.crumbs .c.last{color:var(--ember)}
+.sig{padding:4px 18px 12px;border-bottom:1px solid var(--line)}
+.sig h2{font-family:var(--disp);font-size:16px;font-weight:600;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sig h2 .cls{color:var(--cls)}
+.sig .meta{display:flex;gap:14px;margin-top:7px;color:var(--dim);font-size:11px;flex-wrap:wrap}
+.sig .meta b{color:var(--text);font-weight:500}
+.tabs{display:flex;gap:2px;padding:0 18px;border-bottom:1px solid var(--line)}
+.tab{padding:9px 13px;font-size:11.5px;color:var(--dim);border-bottom:2px solid transparent;letter-spacing:.02em}
+.tab.on{color:var(--text);border-color:var(--mth)}
+.tab .n{font-size:9.5px;color:var(--faint);margin-left:4px}
+.body{flex:1;overflow:auto;padding:16px 18px 40px}
+
+/* exception card */
+.xcard{border:1px solid rgba(255,82,99,.4);background:linear-gradient(180deg,var(--ember-soft),rgba(255,82,99,.04));border-radius:10px;padding:13px 15px;margin-bottom:16px}
+.xcard .xtype{color:var(--ember);font-weight:600;font-size:12.5px;display:flex;gap:8px;align-items:center}
+.xcard .xmsg{margin-top:6px;font-size:12px;color:#FFD7DB;line-height:1.5}
+.xcard .xloc{margin-top:8px;font-size:11px;color:var(--dim)}
+.xcard .xloc b{color:var(--text)}
+
+/* variables table */
+table.vars{width:100%;border-collapse:collapse;font-size:11.5px}
+table.vars th{text-align:left;font-size:9.5px;letter-spacing:.09em;text-transform:uppercase;color:var(--faint);font-weight:500;padding:0 10px 7px}
+table.vars td{padding:6px 10px;border-top:1px solid var(--line-soft);vertical-align:top}
+table.vars tr:hover td{background:rgba(255,255,255,.025)}
+td.vn{color:var(--mth);white-space:nowrap}
+td.vt{color:var(--faint);white-space:nowrap}
+td.vv{color:var(--text);word-break:break-all;line-height:1.45}
+td.vv .null{color:var(--ember);font-weight:600;background:var(--ember-soft);padding:0 5px;border-radius:4px}
+td.vv .str{color:#C9E89B}td.vv .num{color:var(--dml)}td.vv .id{color:var(--soql)}
+
+/* source */
+.src{border:1px solid var(--line-soft);border-radius:10px;overflow:hidden;background:#10162A}
+.srchead{display:flex;align-items:center;gap:9px;padding:8px 13px;border-bottom:1px solid var(--line-soft);font-size:11px;color:var(--dim)}
+.srchead .repo{margin-left:auto;color:var(--faint);font-size:10px;display:flex;gap:6px;align-items:center}
+.codeln{display:flex;font-size:11.5px;line-height:1.85}
+.codeln .ln{width:46px;flex:none;text-align:right;padding-right:13px;color:var(--faint);user-select:none}
+.codeln pre{margin:0;white-space:pre;font-family:var(--mono)}
+.codeln.hl{background:var(--ember-soft);box-shadow:inset 2px 0 0 var(--ember)}
+.codeln.hl .ln{color:var(--ember)}
+.kw{color:var(--mth)}.ty{color:var(--cls)}.st{color:#C9E89B}.cm{color:var(--faint);font-style:italic}.fn{color:#82B4FF}
+
+/* raw log */
+.raw{font-size:11px;line-height:1.8;color:var(--dim)}
+.raw .ll{padding:1px 8px;border-radius:5px;white-space:pre-wrap;word-break:break-all}
+.raw .ll:hover{background:rgba(255,255,255,.03)}
+.raw .ts{color:var(--faint)}
+.raw .ev{color:var(--cls)}
+.raw .ev.x{color:var(--ember);font-weight:600}
+.empty{color:var(--faint);font-size:12px;padding:30px 10px;text-align:center;line-height:1.7}
+.legend{display:flex;gap:13px;flex-wrap:wrap;padding:9px 20px;border-top:1px solid var(--line-soft);font-size:10px;color:var(--dim);background:var(--panel)}
+.legend i{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:980px){
+  main{grid-template-columns:1fr;grid-template-rows:55% 45%}
+  .tree-pane{border-right:none;border-bottom:1px solid var(--line)}
+  .limits{display:none}
+}
+*:focus-visible{outline:2px solid var(--mth);outline-offset:1px;border-radius:6px}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px;border:2px solid var(--bg)}
+::-webkit-scrollbar-track{background:transparent}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <div class="logo"><span class="spark"></span>Trace<em>Lens</em></div>
+    <div class="logmeta">
+      <div class="name">apexlog · 07L8d00000PqXkEAK · Submit Application</div>
+      <div class="sub">FINEST · lqs (managed) · jchen@coastal-cu.com · 11 Jun 2026 13:42:07 · 1.26 s</div>
+    </div>
+    <div class="limits" id="limits"></div>
+  </header>
+
+  <div class="xbanner">
+    <span class="pulse"></span>
+    <div class="xt"><b>System.NullPointerException</b> <span>· Attempt to de-reference a null object · </span><b style="color:var(--text)">RateMatrix.applyOverrides</b><span> · line 142 · 1,172 ms into transaction</span></div>
+    <button class="btn ember" id="jumpx">Trace to exception ↓</button>
+  </div>
+
+  <div class="flamewrap">
+    <div class="flamehead"><span class="t">Execution timeline</span><span class="ticks">0 ms ─ 1,264 ms · click a span to inspect</span></div>
+    <div class="flame" id="flame"></div>
+  </div>
+
+  <main>
+    <section class="tree-pane">
+      <div class="toolbar">
+        <div class="search">⌕<input id="q" placeholder="Filter by class, method or SOQL…" aria-label="Filter trace"></div>
+        <button class="tgl" id="tglpath">Exception path only</button>
+        <button class="tgl" id="tglexp">Expand all</button>
+      </div>
+      <div class="tree" id="tree" role="tree"></div>
+      <div class="legend">
+        <span><i style="background:var(--mth)"></i>Method</span>
+        <span><i style="background:var(--cls)"></i>Constructor / class</span>
+        <span><i style="background:var(--soql)"></i>SOQL</span>
+        <span><i style="background:var(--dml)"></i>DML</span>
+        <span><i style="background:var(--ext)"></i>External managed package (opaque)</span>
+        <span><i style="background:var(--ember)"></i>Exception path</span>
+      </div>
+    </section>
+
+    <aside class="insp">
+      <div class="crumbs" id="crumbs"></div>
+      <div class="sig" id="sig"></div>
+      <div class="tabs" id="tabs"></div>
+      <div class="body" id="ibody"></div>
+    </aside>
+  </main>
+</div>
+
+<script>
+/* ───────────────────────── mock trace data ───────────────────────── */
+const TOTAL = 1264;
+
+const limits = [
+  {k:'SOQL queries', u:4, m:100},
+  {k:'Query rows', u:27, m:50000},
+  {k:'DML rows', u:0, m:10000},
+  {k:'CPU time (ms)', u:1098, m:10000, hot:false},
+  {k:'Heap (KB)', u:1421, m:6144},
+];
+
+let UID = 0;
+const N = (o, kids=[]) => Object.assign({id:++UID, kids}, o);
+
+const v = (name,type,value,nul)=>({name,type,value,nul});
+
+const trace = N({type:'trigger', cls:'lqs__ApplicationTrigger', mth:'after update', start:0, dur:1264, onpath:true,
+  vars:[v('Trigger.new','List<lqs__Application__c>','(1 record) [a0J8d000003TqLm]'), v('Trigger.isAfter','Boolean','true'), v('Trigger.isUpdate','Boolean','true')],
+  raw:[['13:42:07.001 (1083004)','CODE_UNIT_STARTED','[EXTERNAL]|01q8d000000PqXk|lqs.ApplicationTrigger on Application trigger event AfterUpdate'],
+       ['13:42:07.001 (1095330)','TRIGGER_STARTED','lqs.ApplicationTrigger']]},
+[
+  N({type:'method', cls:'ApplicationTriggerHandler', mth:'afterUpdate(List<lqs__Application__c>)', start:2, dur:1256, line:18, onpath:true,
+    vars:[v('newList','List<lqs__Application__c>','(1) {Id=a0J8d000003TqLm, lqs__Status__c="Submitted"}'), v('isRecursive','Boolean','false')],
+    src:{file:'force-app/main/default/classes/ApplicationTriggerHandler.cls', from:14, hl:18, code:[
+      'public override void afterUpdate(List<SObject> newList) {',
+      '    if (RecursionGuard.isActive(\'APP_AFTER_UPDATE\')) return;',
+      '    List<lqs__Application__c> apps = (List<lqs__Application__c>) newList;',
+      '    Set<Id> submitted = StatusFilter.changedTo(apps, \'Submitted\');',
+      '    ApplicationService.submit(submitted);   // ← enters service layer',
+      '}']},
+    raw:[['13:42:07.002 (2114890)','METHOD_ENTRY','[18]|01p8d00000ABCDe|ApplicationTriggerHandler.afterUpdate(List<lqs__Application__c>)']]},
+  [
+    N({type:'method', cls:'ApplicationService', mth:'submit(Set<Id>)', start:6, dur:1244, line:34, onpath:true,
+      vars:[v('appIds','Set<Id>','{a0J8d000003TqLm}'), v('app','lqs__Application__c','{Id=a0J8d000003TqLm, lqs__Amount__c=48500, lqs__TermMonths__c=60}'), v('ctx','SubmitContext','{user=0058d000002LmNo, channel="Online"}')],
+      src:{file:'force-app/main/default/classes/ApplicationService.cls', from:30, hl:34, code:[
+        'public static void submit(Set<Id> appIds) {',
+        '    lqs__Application__c app = ApplicationRepo.byId(appIds);',
+        '    validate(app);',
+        '    CreditDecision d = CreditEngine.score(app);',
+        '    PaymentScheduleBuilder.build(app, d);   // ← throws',
+        '}']},
+      raw:[['13:42:07.006 (6233801)','METHOD_ENTRY','[34]|01p8d00000FGHIj|ApplicationService.submit(Set<Id>)']]},
+    [
+      N({type:'soql', q:'SELECT Id, lqs__Amount__c, lqs__TermMonths__c, lqs__Product__c, lqs__Account__c FROM lqs__Application__c WHERE Id IN :appIds', start:8, dur:64, rows:1, line:61,
+        vars:[v('appIds','Set<Id>','{a0J8d000003TqLm}')],
+        raw:[['13:42:07.008 (8120443)','SOQL_EXECUTE_BEGIN','[61]|Aggregations:0|SELECT Id, lqs__Amount__c… FROM lqs__Application__c'],
+             ['13:42:07.072 (72445102)','SOQL_EXECUTE_END','[61]|Rows:1']]}),
+      N({type:'method', cls:'ApplicationService', mth:'validate(lqs__Application__c)', start:80, dur:54, line:88,
+        vars:[v('app','lqs__Application__c','{…}'), v('errors','List<String>','(0 items) []')],
+        raw:[['13:42:07.080 (80003117)','METHOD_ENTRY','[88]|ApplicationService.validate(lqs__Application__c)']]}),
+      N({type:'method', cls:'CreditEngine', mth:'score(lqs__Application__c)', start:140, dur:380, line:22,
+        vars:[v('app','lqs__Application__c','{…}'), v('decision','CreditDecision','{score=712, tier="B", bureau="EFX"}')],
+        raw:[['13:42:07.140 (140551209)','METHOD_ENTRY','[22]|CreditEngine.score(lqs__Application__c)']]},
+      [
+        N({type:'soql', q:'SELECT Id, lqs__Bureau__c, lqs__PullDate__c FROM lqs__CreditReport__c WHERE lqs__Application__c = :app.Id ORDER BY lqs__PullDate__c DESC LIMIT 1', start:150, dur:90, rows:1, line:31}),
+        N({type:'method', cls:'CreditEngine', mth:'normalizeBureauData(lqs__CreditReport__c)', start:250, dur:130, line:57,
+          vars:[v('report','lqs__CreditReport__c','{Id=a0K8d000001RbXz, lqs__Bureau__c="EFX"}'), v('tradelines','List<Tradeline>','(14 items)')]}),
+        N({type:'ext', cls:'bcx.BureauConnect', mth:'fetchScore(Id)', start:390, dur:115,
+          note:'global method — internals not in this log',
+          vars:[v('return','bcx.ScoreResult','{score=712, model="VantageScore 4.0"}')],
+          raw:[['13:42:07.390 (390112808)','METHOD_ENTRY','[64]|bcx.BureauConnect.fetchScore(Id)'],
+               ['13:42:07.505 (505881245)','METHOD_EXIT','[64]|bcx.BureauConnect.fetchScore(Id)']]}),
+      ]),
+      N({type:'method', cls:'PaymentScheduleBuilder', mth:'build(lqs__Application__c, CreditDecision)', start:530, dur:700, line:41, onpath:true,
+        vars:[v('app','lqs__Application__c','{Id=a0J8d000003TqLm, lqs__Product__c=a0P8d000002WqAb}'), v('decision','CreditDecision','{score=712, tier="B"}'), v('schedule','List<lqs__Installment__c>','(0 items) — never populated', false)],
+        src:{file:'force-app/main/default/classes/PaymentScheduleBuilder.cls', from:38, hl:43, code:[
+          'public static void build(lqs__Application__c app, CreditDecision d) {',
+          '    lqs__Product__c product = ProductRepo.byId(app.lqs__Product__c);',
+          '    Terms t = resolveTerms(product);',
+          '    Decimal rate = RateMatrix.lookup(product, d);   // ← throws',
+          '    List<lqs__Installment__c> schedule = amortize(app, t, rate);',
+          '    insert schedule;',
+          '}']}},
+      [
+        N({type:'soql', q:'SELECT Id, lqs__BaseRate__c, lqs__RateFamily__c FROM lqs__Product__c WHERE Id = :app.lqs__Product__c', start:540, dur:70, rows:1, line:52}),
+        N({type:'method', cls:'PaymentScheduleBuilder', mth:'resolveTerms(lqs__Product__c)', start:620, dur:80, line:74,
+          vars:[v('product','lqs__Product__c','{Id=a0P8d000002WqAb, lqs__BaseRate__c=6.25}'), v('return','Terms','{months=60, dayCount="ACT/365"}')]}),
+        N({type:'method', cls:'RateMatrix', mth:'lookup(lqs__Product__c, CreditDecision)', start:710, dur:470, line:96, onpath:true,
+          vars:[v('product','lqs__Product__c','{Id=a0P8d000002WqAb, lqs__RateFamily__c="AUTO_USED"}'), v('d','CreditDecision','{score=712, tier="B"}'), v('band','RateBand','{name="B", spread=1.85}')],
+          src:{file:'force-app/main/default/classes/RateMatrix.cls', from:92, hl:96, code:[
+            'public static Decimal lookup(lqs__Product__c p, CreditDecision d) {',
+            '    RateBand band = bandFor(d.score);',
+            '    OverrideConfig cfg = OverrideConfig.forFamily(p.lqs__RateFamily__c);',
+            '    return applyOverrides(band, cfg, p);   // ← throws',
+            '}']}},
+        [
+          N({type:'method', cls:'RateMatrix', mth:'bandFor(Integer)', start:730, dur:50, line:118,
+            vars:[v('score','Integer','712'), v('return','RateBand','{name="B", min=700, max=739, spread=1.85}')]}),
+          N({type:'method', cls:'RateMatrix', mth:'applyOverrides(RateBand, OverrideConfig, lqs__Product__c)', start:800, dur:372, line:131, onpath:true,
+            vars:[
+              v('band','RateBand','{name="B", spread=1.85}'),
+              v('cfg','OverrideConfig','null', true),
+              v('p','lqs__Product__c','{Id=a0P8d000002WqAb, lqs__RateFamily__c="AUTO_USED"}'),
+              v('overrides','List<lqs__RateOverride__mdt>','(0 rows)'),
+            ],
+            src:{file:'force-app/main/default/classes/RateMatrix.cls', from:131, hl:142, code:[
+              'private static Decimal applyOverrides(RateBand band, OverrideConfig cfg, lqs__Product__c p) {',
+              '    List<lqs__RateOverride__mdt> overrides = [',
+              '        SELECT lqs__Adjustment__c, lqs__Floor__c',
+              '        FROM lqs__RateOverride__mdt',
+              '        WHERE lqs__RateFamily__c = :p.lqs__RateFamily__c',
+              '    ];',
+              '    Decimal rate = p.lqs__BaseRate__c + band.spread;',
+              '    for (lqs__RateOverride__mdt o : overrides) {',
+              '        rate += o.lqs__Adjustment__c;',
+              '    }',
+              '    // cfg is null when no OverrideConfig exists for the rate family',
+              '    return Math.max(rate, cfg.floorRate);   // ✸ NullPointerException',
+              '}']},
+            raw:[['13:42:07.800 (800223914)','METHOD_ENTRY','[131]|RateMatrix.applyOverrides(RateBand, OverrideConfig, lqs__Product__c)']]},
+          [
+            N({type:'soql', q:'SELECT lqs__Adjustment__c, lqs__Floor__c FROM lqs__RateOverride__mdt WHERE lqs__RateFamily__c = :p.lqs__RateFamily__c', start:810, dur:60, rows:0, line:133}),
+            N({type:'exc', cls:'System.NullPointerException', msg:'Attempt to de-reference a null object', start:1172, dur:8, line:142, onpath:true,
+              cause:{var:'cfg', why:'OverrideConfig.forFamily("AUTO_USED") returned null — no lqs__OverrideConfig__mdt record exists for rate family AUTO_USED, and applyOverrides dereferences cfg.floorRate without a guard.'},
+              stack:['RateMatrix.applyOverrides — line 142','RateMatrix.lookup — line 96','PaymentScheduleBuilder.build — line 43','ApplicationService.submit — line 34','ApplicationTriggerHandler.afterUpdate — line 18'],
+              vars:[v('cfg','OverrideConfig','null', true), v('rate','Decimal','8.10'), v('overrides','List<lqs__RateOverride__mdt>','(0 rows)')],
+              raw:[['13:42:08.172 (1172004551)','EXCEPTION_THROWN','[142]|System.NullPointerException: Attempt to de-reference a null object','x'],
+                   ['13:42:08.176 (1176118420)','FATAL_ERROR','System.NullPointerException: Attempt to de-reference a null object\\n\\nClass.lqs.RateMatrix.applyOverrides: line 142, column 1\\nClass.lqs.RateMatrix.lookup: line 96, column 1\\nClass.lqs.PaymentScheduleBuilder.build: line 43, column 1\\nClass.lqs.ApplicationService.submit: line 34, column 1\\nClass.lqs.ApplicationTriggerHandler.afterUpdate: line 18, column 1','x']]}),
+          ]),
+        ]),
+      ]),
+    ]),
+  ]),
+]);
+
+/* ───────────────────────── helpers ───────────────────────── */
+const $ = s => document.querySelector(s);
+const flat = []; (function walk(n,depth,parent){ n.depth=depth; n.parent=parent; flat.push(n); n.kids.forEach(k=>walk(k,depth+1,n)); })(trace,0,null);
+const byId = id => flat.find(n=>n.id===id);
+const open = new Set(flat.filter(n=>n.onpath||n.depth<2).map(n=>n.id));
+let selId = null, pathOnly=false, allOpen=false, query='';
+
+const typeColor = t => ({trigger:'var(--flow)',method:'var(--mth)',soql:'var(--soql)',dml:'var(--dml)',ext:'var(--ext)',exc:'var(--ember)'}[t]);
+const chipFor = t => ({trigger:'F',method:'M',soql:'Q',dml:'D',ext:'E',exc:'X'}[t]);
+const heat = d => d/TOTAL > .35 ? 'var(--heat3)' : d/TOTAL > .12 ? 'var(--heat2)' : 'var(--heat1)';
+const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;');
+
+function labelHTML(n){
+  if(n.type==='soql') return `<span class="qtxt" title="${esc(n.q)}">${esc(n.q)}</span>`;
+  if(n.type==='exc')  return `<span class="xtxt">${n.cls}</span><span class="note">${esc(n.msg)}</span>`;
+  const note = n.note?`<span class="note">· ${n.note}</span>`:'';
+  return `<span class="cls">${n.cls}</span><span class="dot">.</span><span class="mth">${esc(n.mth)}</span>${note}`;
+}
+function matches(n){
+  if(!query) return true;
+  const hay = (n.cls||'')+' '+(n.mth||'')+' '+(n.q||'')+' '+(n.msg||'');
+  return hay.toLowerCase().includes(query);
+}
+function visible(n){
+  if(pathOnly && !n.onpath) return false;
+  if(query) return matches(n) || n.kids.some(k=>visibleDeep(k));
+  return true;
+}
+function visibleDeep(n){ return visible(n) || n.kids.some(visibleDeep); }
+
+/* ───────────────────────── tree render ───────────────────────── */
+function renderTree(){
+  const tree = $('#tree'); tree.innerHTML='';
+  const build = n => {
+    if(!visibleDeep(n)) return null;
+    const node = document.createElement('div'); node.className='node';
+    const row = document.createElement('div');
+    row.className='row'+(n.onpath?' onpath':'')+(n.id===selId?' sel':'')+(n.type==='ext'?' ghost':'');
+    row.setAttribute('role','treeitem'); row.tabIndex=0;
+    const isOpen = allOpen || open.has(n.id) || (query && n.kids.some(visibleDeep));
+    const leaf = !n.kids.length;
+    row.innerHTML = `
+      <span class="chev ${leaf?'leaf':''} ${isOpen?'open':''}"><svg viewBox="0 0 8 8" fill="currentColor"><path d="M1 0l6 4-6 4z"/></svg></span>
+      <span class="chip ${chipFor(n.type)}">${chipFor(n.type)}</span>
+      <span class="lbl">${labelHTML(n)}</span>
+      <span class="badges">${n.rows!=null?`<span class="bdg rows">${n.rows} row${n.rows===1?'':'s'}</span>`:''}${n.line?`<span class="bdg">L${n.line}</span>`:''}</span>
+      <span class="dur"><span class="ms">${n.dur.toLocaleString()} ms</span><span class="hbar"><i style="width:${Math.max(4,Math.round(n.dur/TOTAL*100))}%;background:${n.type==='exc'?'var(--ember)':heat(n.dur)}"></i></span></span>`;
+    row.querySelector('.chev').addEventListener('click', e=>{ e.stopPropagation(); if(leaf)return; open.has(n.id)?open.delete(n.id):open.add(n.id); allOpen=false; renderTree(); });
+    const sel = ()=>select(n.id);
+    row.addEventListener('click', sel);
+    row.addEventListener('keydown', e=>{ if(e.key==='Enter'||e.key===' '){e.preventDefault();sel();} });
+    node.appendChild(row);
+    if(n.kids.length && isOpen){
+      const kw = document.createElement('div'); kw.className='kids';
+      n.kids.forEach(k=>{ const c=build(k); if(c) kw.appendChild(c); });
+      node.appendChild(kw);
+    }
+    return node;
+  };
+  const root = build(trace);
+  if(root) tree.appendChild(root); else tree.innerHTML='<div class="empty">Nothing matches that filter.<br>Try a class name like <b>RateMatrix</b>.</div>';
+}
+
+/* ───────────────────────── flame strip ───────────────────────── */
+function renderFlame(){
+  const f = $('#flame'); f.innerHTML='';
+  const ROW=17;
+  flat.forEach(n=>{
+    if(n.depth>6) return;
+    const s = document.createElement('button');
+    s.className='span'+(n.type==='exc'?' x':'')+(n.id===selId?' sel':'');
+    s.style.left = (n.start/TOTAL*100)+'%';
+    s.style.width = Math.max(.35,(n.dur/TOTAL*100))+'%';
+    s.style.top = (4+n.depth*ROW)+'px';
+    s.style.background = typeColor(n.type);
+    s.title = (n.cls?n.cls+(n.mth?'.'+n.mth:''):n.q||'') + ` — ${n.dur} ms`;
+    s.setAttribute('aria-label', s.title);
+    s.addEventListener('click',()=>select(n.id,true));
+    f.appendChild(s);
+  });
+  const ph = document.createElement('div'); ph.className='playhead';
+  ph.style.left=(1172/TOTAL*100)+'%'; ph.setAttribute('data-t','✸ 1,172 ms');
+  f.appendChild(ph);
+}
+
+/* ───────────────────────── inspector ───────────────────────── */
+let tab='vars';
+function select(id, expandTo){
+  selId=id; const n=byId(id);
+  if(expandTo){ let p=n.parent; while(p){open.add(p.id);p=p.parent;} }
+  if(n.type==='exc') tab = 'vars';
+  renderTree(); renderFlame(); renderInspector();
+  const sel = document.querySelector('.row.sel'); if(sel) sel.scrollIntoView({block:'nearest'});
+}
+function crumbsFor(n){ const c=[]; let p=n; while(p){c.unshift(p);p=p.parent;} return c; }
+
+function renderInspector(){
+  const n = byId(selId);
+  const crumbs=$('#crumbs'), sig=$('#sig'), tabs=$('#tabs'), body=$('#ibody');
+  if(!n){ crumbs.innerHTML=''; sig.innerHTML=''; tabs.innerHTML='';
+    body.innerHTML='<div class="empty">Select a frame in the call tree or timeline.<br><br>Tip — <b style="color:var(--ember)">Trace to exception</b> drops you straight onto the failing line.</div>';
+    return; }
+
+  crumbs.innerHTML = crumbsFor(n).map((c,i,a)=>
+    `<span class="c ${i===a.length-1?'last':''}" data-id="${c.id}">${c.type==='soql'?'SOQL':c.type==='exc'?'✸ exception':(c.cls+(c.mth?'.'+c.mth.split('(')[0]:''))}</span>${i<a.length-1?'<span class="sep">→</span>':''}`).join('');
+  crumbs.querySelectorAll('.c').forEach(el=>el.addEventListener('click',()=>select(+el.dataset.id,true)));
+
+  const title = n.type==='soql' ? 'SOQL query' : n.type==='exc' ? n.cls : `<span class="cls">${n.cls}</span>.${esc((n.mth||'').split('(')[0])}`;
+  sig.innerHTML = `<h2>${title}</h2>
+    <div class="meta">
+      <span>started <b>${n.start.toLocaleString()} ms</b></span>
+      <span>took <b>${n.dur.toLocaleString()} ms</b> (${(n.dur/TOTAL*100).toFixed(1)}%)</span>
+      ${n.line?`<span>line <b>${n.line}</b></span>`:''}
+      ${n.rows!=null?`<span>rows <b>${n.rows}</b></span>`:''}
+      ${n.type==='ext'?'<span style="color:var(--ext)">external package — opaque frame</span>':''}
+      ${n.onpath?'<span style="color:var(--ember)">on exception path</span>':''}
+    </div>`;
+
+  const defs=[['vars','Values',(n.vars||[]).length],['src','Source',n.src?1:0],['raw','Raw log',(n.raw||[]).length]];
+  tabs.innerHTML = defs.map(([k,l,c])=>`<button class="tab ${tab===k?'on':''}" data-t="${k}">${l}${c?`<span class="n">${c}</span>`:''}</button>`).join('');
+  tabs.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{tab=b.dataset.t;renderInspector();}));
+
+  let html='';
+  if(n.type==='exc'){
+    html += `<div class="xcard">
+      <div class="xtype">✸ ${n.cls}</div>
+      <div class="xmsg">${esc(n.msg)}</div>
+      <div class="xloc">Likely cause — <b>${n.cause.var}</b> is null: ${esc(n.cause.why)}</div>
+      <div class="xloc" style="margin-top:10px">Stack (innermost first)<br>${n.stack.map(s=>`<div style="padding:2px 0;color:var(--text)">↳ ${s}</div>`).join('')}</div>
+    </div>`;
+  }
+  if(tab==='vars'){
+    html += (n.vars&&n.vars.length) ? `<table class="vars"><thead><tr><th>Name</th><th>Type</th><th>Value at this frame</th></tr></thead><tbody>${
+      n.vars.map(x=>`<tr><td class="vn">${x.name}</td><td class="vt">${esc(x.type)}</td><td class="vv">${fmtVal(x)}</td></tr>`).join('')
+    }</tbody></table>` : '<div class="empty">No variable assignments captured for this frame.</div>';
+  } else if(tab==='src'){
+    html += n.src ? renderSrc(n) : `<div class="empty">No matching file in the connected repo for this frame${n.type==='ext'?' — it lives in another managed package':''}.</div>`;
+  } else {
+    html += (n.raw&&n.raw.length) ? `<div class="raw">${n.raw.map(l=>`<div class="ll"><span class="ts">${l[0]}</span> | <span class="ev ${l[3]||''}">${l[1]}</span> | ${esc(l[2])}</div>`).join('')}</div>`
+      : '<div class="empty">Raw lines for this frame are collapsed in the demo dataset.</div>';
+  }
+  body.innerHTML = html;
+}
+function fmtVal(x){
+  if(x.nul) return '<span class="null">null</span>';
+  let s = esc(x.value);
+  s = s.replace(/"([^"]*)"/g,'<span class="str">"$1"</span>')
+       .replace(/\b(a0[A-Za-z0-9]{13,16}|005[A-Za-z0-9]{12,15}|01[pq][A-Za-z0-9]{8,15})\b/g,'<span class="id">$1</span>')
+       .replace(/(?<![\w"])(\d+(?:\.\d+)?)(?![\w"])/g,'<span class="num">$1</span>');
+  return s;
+}
+function renderSrc(n){
+  const s=n.src;
+  const lines = s.code.map((c,i)=>{
+    const ln=s.from+i;
+    let t=esc(c)
+      .replace(/\b(public|private|static|override|void|return|for|if|new|insert)\b/g,'<span class="kw">$1</span>')
+      .replace(/\b(Decimal|Integer|Boolean|String|Set&lt;Id&gt;|List|RateBand|OverrideConfig|CreditDecision|Terms|lqs__\w+__c|lqs__\w+__mdt|SObject)\b/g,'<span class="ty">$1</span>')
+      .replace(/(\/\/.*)$/,'<span class="cm">$1</span>')
+      .replace(/'([^']*)'/g,'<span class="st">\'$1\'</span>');
+    return `<div class="codeln ${ln===s.hl?'hl':''}"><span class="ln">${ln}</span><pre>${t}</pre></div>`;
+  }).join('');
+  return `<div class="src"><div class="srchead">📄 ${s.file}<span class="repo">⎇ main · coastal-cu/lqs-core</span></div>${lines}</div>`;
+}
+
+/* ───────────────────────── header limits ───────────────────────── */
+$('#limits').innerHTML = limits.map(l=>{
+  const pct=l.u/l.m*100;
+  return `<div class="limit ${pct>60?'hot':''}"><span class="k">${l.k}</span><span class="v"><b>${l.u.toLocaleString()}</b><span> / ${l.m.toLocaleString()}</span></span><span class="bar"><i style="width:${Math.max(2,pct)}%"></i></span></div>`;
+}).join('');
+
+/* ───────────────────────── wiring ───────────────────────── */
+const excNode = flat.find(n=>n.type==='exc');
+$('#jumpx').addEventListener('click',()=>{ select(excNode.id,true); tab='src'; renderInspector(); });
+$('#q').addEventListener('input',e=>{ query=e.target.value.trim().toLowerCase(); renderTree(); });
+$('#tglpath').addEventListener('click',e=>{ pathOnly=!pathOnly; e.target.classList.toggle('on',pathOnly); renderTree(); });
+$('#tglexp').addEventListener('click',e=>{ allOpen=!allOpen; e.target.classList.toggle('on',allOpen); e.target.textContent=allOpen?'Collapse':'Expand all'; if(!allOpen){open.clear();flat.filter(n=>n.onpath||n.depth<2).forEach(n=>open.add(n.id));} renderTree(); });
+
+renderTree(); renderFlame(); renderInspector();
+</script>
+</body>
+</html>
