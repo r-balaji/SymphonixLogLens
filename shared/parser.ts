@@ -1,7 +1,9 @@
 import type {
   CallNode,
+  DiagnosisFinding,
   DebugEntry,
   ExecContext,
+  FindingSeverity,
   LimitRow,
   LimitsSummary,
   LimitUsage,
@@ -463,6 +465,22 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
         : null
       : null;
 
+  const limitsSummary = buildLimitsSummary(limits, asyncLabel, {
+    soqlCount,
+    soqlRows,
+    dmlCount,
+    dmlRows,
+    soslCount: events["SOSL_EXECUTE_BEGIN"] ?? 0,
+    calloutCount: events["CALLOUT_REQUEST"] ?? 0,
+  });
+
+  const findings = buildDiagnosisFindings(root, exceptionNode, limitsSummary, {
+    durationNanos,
+    limitsAreLogged: limits.length > 0,
+    managedPkgRuns,
+    warnings,
+  });
+
   return {
     apiVersion,
     logLevels,
@@ -470,15 +488,9 @@ export function parseLog(text: string, opts: ParseOptions): ParseResult {
     codeUnit,
     root,
     limits,
-    limitsSummary: buildLimitsSummary(limits, asyncLabel, {
-      soqlCount,
-      soqlRows,
-      dmlCount,
-      dmlRows,
-      soslCount: events["SOSL_EXECUTE_BEGIN"] ?? 0,
-      calloutCount: events["CALLOUT_REQUEST"] ?? 0,
-    }),
+    limitsSummary,
     exception: exceptionNode,
+    findings,
     warnings,
     stats: {
       totalLines: lines.length,
@@ -615,4 +627,466 @@ function computeTiming(node: CallNode): void {
   if (node.durationNanos !== null) {
     node.selfNanos = Math.max(0, node.durationNanos - childTotal);
   }
+}
+
+// --- Diagnosis findings ----------------------------------------------------
+
+interface DiagnosisContext {
+  durationNanos: number | null;
+  limitsAreLogged: boolean;
+  managedPkgRuns: number;
+  warnings: string[];
+}
+
+interface NodeIndex {
+  nodes: CallNode[];
+  parent: Map<string, CallNode | null>;
+}
+
+function buildDiagnosisFindings(
+  root: CallNode,
+  exceptionNode: CallNode | null,
+  limitsSummary: LimitsSummary,
+  ctx: DiagnosisContext,
+): DiagnosisFinding[] {
+  const idx = flattenWithParents(root);
+  const findings: DiagnosisFinding[] = [];
+
+  addExceptionFinding(findings, exceptionNode, idx);
+  addLimitFindings(findings, limitsSummary, root);
+  addRepeatedSoqlFindings(findings, idx);
+  addRepeatedDmlFindings(findings, idx);
+  addLargeQueryFindings(findings, idx);
+  addPerformanceFinding(findings, root, ctx.durationNanos);
+  addManagedPackageFinding(findings, idx, ctx.managedPkgRuns);
+  addObservabilityFindings(findings, limitsSummary, ctx);
+
+  return findings.sort((a, b) => {
+    const severity = severityRank(b.severity) - severityRank(a.severity);
+    if (severity !== 0) return severity;
+    const category = categoryRank(b.category) - categoryRank(a.category);
+    if (category !== 0) return category;
+    return a.title.localeCompare(b.title);
+  });
+}
+
+function flattenWithParents(root: CallNode): NodeIndex {
+  const nodes: CallNode[] = [];
+  const parent = new Map<string, CallNode | null>();
+  const walk = (node: CallNode, p: CallNode | null) => {
+    nodes.push(node);
+    parent.set(node.id, p);
+    for (const child of node.children) walk(child, node);
+  };
+  walk(root, null);
+  return { nodes, parent };
+}
+
+function severityRank(severity: FindingSeverity): number {
+  if (severity === "critical") return 3;
+  if (severity === "warning") return 2;
+  return 1;
+}
+
+function categoryRank(category: DiagnosisFinding["category"]): number {
+  switch (category) {
+    case "exception": return 100;
+    case "governor-limit": return 90;
+    case "repeated-soql": return 80;
+    case "repeated-dml": return 70;
+    case "large-query": return 60;
+    case "performance": return 50;
+    case "managed-package": return 20;
+    case "observability": return 10;
+  }
+}
+
+function addExceptionFinding(
+  findings: DiagnosisFinding[],
+  exceptionNode: CallNode | null,
+  idx: NodeIndex,
+): void {
+  if (!exceptionNode) return;
+  const owner = idx.parent.get(exceptionNode.id) ?? null;
+  const values = owner ? recentMeaningfulAssignments(owner, 4) : [];
+  const nullValue = values.find((v) => /\bnull\b/i.test(v.value));
+  const isNullPointer = /nullpointer|de-reference a null object/i.test(
+    `${exceptionNode.exceptionType ?? ""} ${exceptionNode.exceptionMessage ?? ""}`,
+  );
+  const type = exceptionNode.exceptionType ?? "Unhandled exception";
+  const message = exceptionNode.exceptionMessage ?? "";
+  const location = locationFor(owner ?? exceptionNode, exceptionNode.line);
+  const evidence = [
+    `${type}${message ? `: ${message}` : ""}`,
+    ...values.map((v) => `Last value in failing frame: ${v.name} = ${truncate(v.value, 120)}`),
+    ...(exceptionNode.stack?.slice(0, 3).map((s) => `Stack: ${s}`) ?? []),
+  ];
+
+  findings.push({
+    id: "finding-exception",
+    severity: "critical",
+    category: "exception",
+    title: type,
+    location,
+    nodeId: exceptionNode.id,
+    className: owner?.className ?? exceptionNode.className,
+    line: exceptionNode.line,
+    summary: message || "The transaction threw an exception.",
+    rootCause:
+      isNullPointer && nullValue
+        ? `${nullValue.name} was logged as null in the failing frame before the exception.`
+        : "The log captured an unhandled exception on the active call stack.",
+    evidence,
+    recommendation: isNullPointer
+      ? "Guard the null assumption at the failing line and verify the upstream query or assignment that should populate the value."
+      : "Open the failing frame, inspect the last assignments, and fix the first user-code frame on the stack.",
+    verify: "Rerun the same transaction and confirm the exception path no longer appears.",
+    focusClass: owner?.className ?? null,
+    trackValue: nullValue?.name ?? values[0]?.name ?? null,
+  });
+}
+
+function addLimitFindings(
+  findings: DiagnosisFinding[],
+  limitsSummary: LimitsSummary,
+  root: CallNode,
+): void {
+  const hotspot = hottestNode(root);
+  for (const row of limitsSummary.rows) {
+    if (row.max <= 0) continue;
+    const pct = row.used / row.max;
+    if (pct < 0.8) continue;
+    const severity: FindingSeverity = pct >= 0.95 ? "critical" : "warning";
+    const isCpu = /cpu/i.test(row.key);
+    const isHeap = /heap/i.test(row.key);
+    const focus = isCpu || isHeap ? hotspot?.className ?? null : null;
+    findings.push({
+      id: `finding-limit-${slug(row.key)}`,
+      severity,
+      category: "governor-limit",
+      title: `${row.key} at ${Math.round(pct * 100)}%`,
+      location: "Transaction-wide",
+      nodeId: isCpu || isHeap ? hotspot?.id ?? null : null,
+      className: focus,
+      summary: `${row.key} used ${row.used.toLocaleString()} of ${row.max.toLocaleString()}.`,
+      rootCause: isCpu || isHeap
+        ? "The transaction is close to a runtime resource limit; the hottest frame is the best first place to inspect."
+        : "The transaction is close to a governor limit and may fail with a slightly larger record set.",
+      evidence: [
+        `${row.key}: ${row.used.toLocaleString()} / ${row.max.toLocaleString()}`,
+        `Execution context: ${limitsSummary.contextLabel}`,
+        ...(hotspot ? [`Hottest frame: ${nodeLabel(hotspot)} (${fmtNanos(hotspot.selfNanos ?? hotspot.durationNanos)})`] : []),
+      ],
+      recommendation: recommendationForLimit(row.key),
+      verify: "Rerun with the same scenario and confirm this limit stays below 80%.",
+      focusClass: focus,
+    });
+  }
+}
+
+function addRepeatedSoqlFindings(findings: DiagnosisFinding[], idx: NodeIndex): void {
+  const groups = new Map<string, CallNode[]>();
+  for (const node of idx.nodes) {
+    if (node.kind !== "soql" || !node.query) continue;
+    const key = `${node.line ?? "external"}|${normalizeQuery(node.query)}`;
+    const group = groups.get(key) ?? [];
+    group.push(node);
+    groups.set(key, group);
+  }
+
+  const repeated = [...groups.values()]
+    .filter((group) => group.length >= 5)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 3);
+
+  for (const group of repeated) {
+    const first = group[0];
+    const parent = idx.parent.get(first.id) ?? null;
+    const rows = group.reduce((sum, n) => sum + (n.rows ?? 0), 0);
+    findings.push({
+      id: `finding-soql-repeat-${first.id}`,
+      severity: group.length >= 50 ? "critical" : "warning",
+      category: "repeated-soql",
+      title: `Repeated SOQL query (${group.length}x)`,
+      location: locationFor(parent ?? first, first.line),
+      nodeId: first.id,
+      className: parent?.className ?? null,
+      line: first.line,
+      summary: `The same SOQL shape ran ${group.length} times in this transaction.`,
+      rootCause: "This matches a common SOQL-in-loop or repeated selector-access pattern.",
+      evidence: [
+        `Executions: ${group.length}`,
+        `Rows returned total: ${rows.toLocaleString()}`,
+        `Query: ${truncate(first.query ?? "", 160)}`,
+        ...(parent ? [`Caller: ${nodeLabel(parent)}`] : []),
+      ],
+      recommendation: "Query once outside the repeated path, then reuse results with a map or grouped collection.",
+      verify: "Rerun and confirm this query executes once or only for distinct, intentional batches.",
+      focusClass: parent?.className ?? null,
+    });
+  }
+}
+
+function addRepeatedDmlFindings(findings: DiagnosisFinding[], idx: NodeIndex): void {
+  const groups = new Map<string, CallNode[]>();
+  for (const node of idx.nodes) {
+    if (node.kind !== "dml") continue;
+    const key = `${node.line ?? "external"}|${node.dmlOp ?? "DML"}|${node.className ?? ""}`;
+    const group = groups.get(key) ?? [];
+    group.push(node);
+    groups.set(key, group);
+  }
+
+  const repeated = [...groups.values()]
+    .filter((group) => group.length >= 5)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, 3);
+
+  for (const group of repeated) {
+    const first = group[0];
+    const parent = idx.parent.get(first.id) ?? null;
+    const rows = group.reduce((sum, n) => sum + (n.rows ?? 0), 0);
+    findings.push({
+      id: `finding-dml-repeat-${first.id}`,
+      severity: group.length >= 75 ? "critical" : "warning",
+      category: "repeated-dml",
+      title: `Repeated DML operation (${group.length}x)`,
+      location: locationFor(parent ?? first, first.line),
+      nodeId: first.id,
+      className: parent?.className ?? null,
+      line: first.line,
+      summary: `${first.dmlOp ?? "DML"} on ${first.className ?? "records"} ran ${group.length} times.`,
+      rootCause: "This matches a common DML-in-loop pattern.",
+      evidence: [
+        `Executions: ${group.length}`,
+        `Rows affected total: ${rows.toLocaleString()}`,
+        ...(parent ? [`Caller: ${nodeLabel(parent)}`] : []),
+      ],
+      recommendation: "Collect records in memory and perform one bulk DML operation after the repeated path completes.",
+      verify: "Rerun and confirm DML statements drop while affected row counts remain correct.",
+      focusClass: parent?.className ?? null,
+    });
+  }
+}
+
+function addLargeQueryFindings(findings: DiagnosisFinding[], idx: NodeIndex): void {
+  const largeQueries = idx.nodes
+    .filter((node) => node.kind === "soql" && (node.rows ?? 0) >= 10000)
+    .sort((a, b) => (b.rows ?? 0) - (a.rows ?? 0))
+    .slice(0, 3);
+
+  for (const query of largeQueries) {
+    const parent = idx.parent.get(query.id) ?? null;
+    const rows = query.rows ?? 0;
+    findings.push({
+      id: `finding-large-query-${query.id}`,
+      severity: rows >= 50000 ? "critical" : "warning",
+      category: "large-query",
+      title: `Large SOQL result set (${rows.toLocaleString()} rows)`,
+      location: locationFor(parent ?? query, query.line),
+      nodeId: query.id,
+      className: parent?.className ?? null,
+      line: query.line,
+      summary: `A SOQL query returned ${rows.toLocaleString()} rows.`,
+      rootCause: "Large result sets can drive heap pressure, CPU pressure, and non-selective-query failures.",
+      evidence: [
+        `Rows returned: ${rows.toLocaleString()}`,
+        `Query: ${truncate(query.query ?? "", 160)}`,
+        ...(parent ? [`Caller: ${nodeLabel(parent)}`] : []),
+      ],
+      recommendation: "Reduce the result set with selective filters, indexed fields, or smaller processing scopes.",
+      verify: "Use a query plan or rerun the log and confirm returned rows are intentionally bounded.",
+      focusClass: parent?.className ?? null,
+    });
+  }
+}
+
+function addPerformanceFinding(
+  findings: DiagnosisFinding[],
+  root: CallNode,
+  durationNanos: number | null,
+): void {
+  if (durationNanos === null || durationNanos < 5_000_000_000) return;
+  const hotspot = hottestNode(root);
+  if (!hotspot) return;
+  const share = ((hotspot.selfNanos ?? 0) / durationNanos) * 100;
+  findings.push({
+    id: "finding-slow-hotspot",
+    severity: durationNanos >= 10_000_000_000 ? "critical" : "warning",
+    category: "performance",
+    title: `Slow transaction (${fmtNanos(durationNanos)})`,
+    location: "Transaction-wide",
+    nodeId: hotspot.id,
+    className: hotspot.className,
+    summary: `The transaction took ${fmtNanos(durationNanos)}.`,
+    rootCause: `${nodeLabel(hotspot)} has the highest self-time in the trace.`,
+    evidence: [
+      `Hottest frame: ${nodeLabel(hotspot)}`,
+      `Self-time: ${fmtNanos(hotspot.selfNanos)} (${share.toFixed(0)}% of transaction)`,
+    ],
+    recommendation: "Inspect the hottest frame first, then reduce repeated work, cache expensive lookups, or move valid heavy work async.",
+    verify: "Rerun the same transaction and compare total duration plus hottest-frame self-time.",
+    focusClass: hotspot.className,
+  });
+}
+
+function addManagedPackageFinding(
+  findings: DiagnosisFinding[],
+  idx: NodeIndex,
+  managedPkgRuns: number,
+): void {
+  if (managedPkgRuns === 0) return;
+  const packages = new Map<string, { count: number; suppressed: number; first: CallNode }>();
+  for (const node of idx.nodes) {
+    if (node.kind !== "managed-pkg" || !node.namespace) continue;
+    const existing = packages.get(node.namespace);
+    if (existing) {
+      existing.count += 1;
+      existing.suppressed += node.suppressedCount ?? 0;
+    } else {
+      packages.set(node.namespace, {
+        count: 1,
+        suppressed: node.suppressedCount ?? 0,
+        first: node,
+      });
+    }
+  }
+  const busiest = [...packages.entries()].sort((a, b) => b[1].suppressed - a[1].suppressed)[0];
+  if (!busiest) return;
+  const [namespace, stats] = busiest;
+  findings.push({
+    id: `finding-managed-${slug(namespace)}`,
+    severity: stats.suppressed >= 1000 ? "warning" : "info",
+    category: "managed-package",
+    title: `Managed package visibility gap: ${namespace}`,
+    location: namespace,
+    nodeId: stats.first.id,
+    summary: `The trace entered ${namespace} ${stats.count.toLocaleString()} time${stats.count === 1 ? "" : "s"}.`,
+    rootCause: "Salesforce does not emit internal METHOD_ENTRY events for managed-package code, so only boundary evidence is available.",
+    evidence: [
+      `Managed package runs: ${stats.count.toLocaleString()}`,
+      `Hidden statements: ${stats.suppressed.toLocaleString()}`,
+      `Boundary inputs: ${(stats.first.inputs?.length ?? 0).toLocaleString()}`,
+      `Boundary outputs: ${(stats.first.outputs?.length ?? 0).toLocaleString()}`,
+    ],
+    recommendation: "Inspect boundary values and caller frames; hide the package when it is noise or focus the caller when it changes outputs.",
+    verify: "Reproduce with caller-side debug statements around the package boundary if more in/out evidence is needed.",
+  });
+}
+
+function addObservabilityFindings(
+  findings: DiagnosisFinding[],
+  limitsSummary: LimitsSummary,
+  ctx: DiagnosisContext,
+): void {
+  if (ctx.warnings.length > 0) {
+    findings.push({
+      id: "finding-truncated-log",
+      severity: "warning",
+      category: "observability",
+      title: "Log may be truncated",
+      location: "Log capture",
+      nodeId: null,
+      summary: ctx.warnings[0],
+      rootCause: "The parser reached the end of the log while one or more frames were still open.",
+      evidence: ctx.warnings.slice(0, 3),
+      recommendation: "Reduce noisy debug levels or capture a narrower transaction window.",
+      verify: "Rerun and confirm the log closes all call frames without parser warnings.",
+    });
+  }
+
+  if (!ctx.limitsAreLogged || limitsSummary.source === "estimated") {
+    findings.push({
+      id: "finding-log-settings",
+      severity: "info",
+      category: "observability",
+      title: "Better log settings recommended",
+      location: "Log capture",
+      nodeId: null,
+      summary: "Governor limits are estimated because the log does not include full cumulative limit usage.",
+      rootCause: "Profiling detail is missing or incomplete in this log capture.",
+      evidence: [
+        `Limit source: ${limitsSummary.source}`,
+        "Suggested: Apex Code = FINEST",
+        "Suggested: Database = FINEST",
+        "Suggested: Profiling = FINEST",
+      ],
+      recommendation: "Rerun with Apex Code, Database, and Profiling at FINEST for a complete diagnosis.",
+      verify: "Confirm the next log contains CUMULATIVE_LIMIT_USAGE rows.",
+    });
+  }
+}
+
+function hottestNode(root: CallNode): CallNode | null {
+  let best: CallNode | null = null;
+  const walk = (node: CallNode) => {
+    if (
+      node.kind !== "root" &&
+      node.kind !== "soql" &&
+      node.kind !== "dml" &&
+      (node.selfNanos ?? 0) > (best?.selfNanos ?? 0)
+    ) {
+      best = node;
+    }
+    for (const child of node.children) walk(child);
+  };
+  walk(root);
+  return best;
+}
+
+function recentMeaningfulAssignments(node: CallNode, limit: number): ValueAssignment[] {
+  return node.assignments
+    .filter((assignment) => {
+      const value = assignment.value.trim();
+      return assignment.name !== "this" && value !== "{}" && value !== "[]";
+    })
+    .slice(-limit);
+}
+
+function nodeLabel(node: CallNode): string {
+  if (node.kind === "root") return node.method ?? "Execution";
+  if (node.kind === "managed-pkg") return `${node.namespace ?? "managed package"} (managed)`;
+  if (node.kind === "soql") return "SOQL";
+  if (node.kind === "dml") return node.method ?? "DML";
+  if (node.kind === "exception") return node.exceptionType ?? "Exception";
+  if (node.className && node.method) return `${node.className}.${node.method}`;
+  return node.method ?? node.className ?? node.signature ?? "Frame";
+}
+
+function locationFor(node: CallNode, line: number | null | undefined): string {
+  const label = nodeLabel(node);
+  return line != null ? `${label} · line ${line}` : label;
+}
+
+function normalizeQuery(query: string): string {
+  return query
+    .replace(/'[^']*'/g, "'?'")
+    .replace(/\b[a-zA-Z0-9]{15,18}\b/g, "?")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function truncate(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+}
+
+function slug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "item";
+}
+
+function fmtNanos(nanos: number | null | undefined): string {
+  if (nanos == null) return "—";
+  const ms = nanos / 1e6;
+  if (ms < 1) return `${ms.toFixed(2)} ms`;
+  if (ms < 1000) return `${ms.toFixed(0)} ms`;
+  return `${(ms / 1000).toFixed(2)} s`;
+}
+
+function recommendationForLimit(key: string): string {
+  if (/soql/i.test(key)) return "Bulkify repeated queries and move shared lookups outside loops.";
+  if (/dml/i.test(key)) return "Batch record changes and perform fewer bulk DML statements.";
+  if (/cpu/i.test(key)) return "Reduce repeated work, cache expensive calculations, and inspect the hottest frames first.";
+  if (/heap/i.test(key)) return "Reduce in-memory collection sizes, stream large queries, and clear temporary state.";
+  return "Reduce the repeated work that consumes this limit and rerun the transaction.";
 }

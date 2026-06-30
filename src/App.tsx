@@ -6,6 +6,7 @@ import { filterTree, focusTree, indexTree, valueTimeline, type Filter } from "./
 import { Waterfall } from "./components/Waterfall.js";
 import { TraceTree } from "./components/TraceTree.js";
 import { Inspector } from "./components/Inspector.js";
+import { DiagnosisPanel } from "./components/DiagnosisPanel.js";
 
 export interface Session {
   id: string;
@@ -90,6 +91,7 @@ export function App() {
   const [trackName, setTrackName] = useState<string | null>(null);
   const [showFlame, setShowFlame] = useState(false);
   const [showLimits, setShowLimits] = useState(true);
+  const [showDiagnosis, setShowDiagnosis] = useState(false);
   const [filters, setFilters] = useState<Filter[]>([]);
   const [focusClasses, setFocusClasses] = useState<string[]>([]);
 
@@ -122,6 +124,7 @@ export function App() {
     setFilters([]);
     setFocusClasses([]);
     setTrackName(null);
+    setShowDiagnosis((r.findings ?? []).some((f) => f.severity !== "info"));
   }, []);
 
   const handleFile = useCallback(
@@ -271,7 +274,7 @@ export function App() {
 
   if (!result) {
     return (
-      <div className="app">
+      <div className="app app-empty">
         <Header
           homeNs={homeNs} setHomeNs={setHomeNs}
           repoUrl={repoUrl} setRepoUrl={setRepoUrl}
@@ -314,7 +317,7 @@ export function App() {
   const exc = result.exception;
 
   return (
-    <div className="app">
+    <div className="app app-trace">
       {busy && <ParseOverlay fileName={busyFile} />}
       {repoCloning && <ParseOverlay title="Connecting repository…" hint={`Sparse-cloning Apex classes from ${repoCloning}`} />}
       <Header
@@ -330,7 +333,7 @@ export function App() {
         theme={theme}
         onToggleTheme={() => setTheme((t) => (t === "dark" ? "light" : "dark"))}
         onUpload={handleFile}
-        onNew={() => { setSessions([]); setActiveId(null); setSelId(null); setQuery(""); setTrackName(null); setFilters([]); setFocusClasses([]); }}
+        onNew={() => { setSessions([]); setActiveId(null); setSelId(null); setQuery(""); setTrackName(null); setFilters([]); setFocusClasses([]); setShowDiagnosis(false); }}
       />
 
       {exc && (
@@ -345,30 +348,42 @@ export function App() {
         </div>
       )}
 
-      <div className="flamewrap">
-        <div className="flamehead">
-          <button className="flametgl" onClick={() => setShowFlame((v) => !v)}>
-            {showFlame ? "−" : "+"}
-          </button>
-          <span className="t">Transaction waterfall</span>
-          <span className="ticks">
-            {showFlame
-              ? `by class · self-time · 0 ms ─ ${fmtDuration(result.stats.durationNanos)}`
-              : `collapsed · ${fmtDuration(result.stats.durationNanos)} total`}
-          </span>
+      <div className={`analysis-strip ${!showFlame && !showLimits && !showDiagnosis ? "compact" : "stacked"}`}>
+        <div className="flamewrap">
+          <div className="flamehead">
+            <button className="flametgl" onClick={() => setShowFlame((v) => !v)}>
+              {showFlame ? "−" : "+"}
+            </button>
+            <span className="t">Transaction waterfall</span>
+            <span className="ticks">
+              {showFlame
+                ? `by class · self-time · 0 ms ─ ${fmtDuration(result.stats.durationNanos)}`
+                : `collapsed · ${fmtDuration(result.stats.durationNanos)} total`}
+            </span>
+          </div>
+          {showFlame && (
+            <Waterfall
+              root={viewRoot ?? result.root}
+              baseline={baseline}
+              total={total}
+              selId={safeSelId}
+              onSelect={selectAndReveal}
+            />
+          )}
         </div>
-        {showFlame && (
-          <Waterfall
-            root={viewRoot ?? result.root}
-            baseline={baseline}
-            total={total}
-            selId={safeSelId}
-            onSelect={selectAndReveal}
-          />
-        )}
-      </div>
 
-      <GovernorLimits summary={result.limitsSummary} show={showLimits} onToggle={() => setShowLimits((v) => !v)} />
+        <GovernorLimits summary={result.limitsSummary} show={showLimits} onToggle={() => setShowLimits((v) => !v)} />
+
+        <DiagnosisPanel
+          findings={result.findings ?? []}
+          open={showDiagnosis}
+          onToggle={() => setShowDiagnosis((v) => !v)}
+          onSelectNode={selectAndReveal}
+          onFocusClass={addFocus}
+          onTrack={setTrackName}
+          onOpenWaterfall={() => setShowFlame(true)}
+        />
+      </div>
 
       <HeroStrip session={sessions.find((s) => s.id === activeId)!} result={result} />
 
