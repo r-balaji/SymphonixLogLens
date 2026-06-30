@@ -113,6 +113,36 @@ export interface LimitsSummary {
   rows: LimitRow[];
 }
 
+export type FindingSeverity = "critical" | "warning" | "info";
+
+export type FindingCategory =
+  | "exception"
+  | "governor-limit"
+  | "repeated-soql"
+  | "repeated-dml"
+  | "large-query"
+  | "performance"
+  | "managed-package"
+  | "observability";
+
+export interface DiagnosisFinding {
+  id: string;
+  severity: FindingSeverity;
+  category: FindingCategory;
+  title: string;
+  location: string;
+  nodeId: string | null;
+  className?: string | null;
+  line?: number | null;
+  summary: string;
+  rootCause: string;
+  evidence: string[];
+  recommendation: string;
+  verify: string;
+  focusClass?: string | null;
+  trackValue?: string | null;
+}
+
 export interface ParseStats {
   totalLines: number;
   events: Record<string, number>;
@@ -142,6 +172,7 @@ export interface ParseResult {
   limits: LimitUsage[];
   limitsSummary: LimitsSummary;
   exception: CallNode | null; // the thrown exception node, if any
+  findings: DiagnosisFinding[];
   warnings: string[];
 }
 
