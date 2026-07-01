@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { connectRepo, disconnectRepo, parseLogFile, type ParseResponse } from "./lib/api.js";
 import type { LimitsSummary } from "../shared/types.js";
 import { fmtDuration } from "./lib/format.js";
@@ -94,6 +94,7 @@ export function App() {
   const [showDiagnosis, setShowDiagnosis] = useState(false);
   const [filters, setFilters] = useState<Filter[]>([]);
   const [focusClasses, setFocusClasses] = useState<string[]>([]);
+  const [treeRevealKey, setTreeRevealKey] = useState(0);
 
   const addFilter = useCallback((value: string) => {
     const v = value.trim();
@@ -272,6 +273,29 @@ export function App() {
     return indexTree(viewRoot).byId.has(selId) ? selId : (viewRoot.children[0]?.id ?? null);
   }, [viewRoot, selId]);
 
+  const viewRestrictions = useMemo(
+    () => ({
+      hasSearch: query.trim().length > 0,
+      pathOnly,
+      filterCount: filters.length,
+      focusCount: focusClasses.length,
+    }),
+    [query, pathOnly, filters.length, focusClasses.length],
+  );
+  const prevViewRestrictions = useRef(viewRestrictions);
+  useEffect(() => {
+    const prev = prevViewRestrictions.current;
+    const searchCleared = prev.hasSearch && !viewRestrictions.hasSearch;
+    const pathCleared = prev.pathOnly && !viewRestrictions.pathOnly;
+    const filterRemoved = viewRestrictions.filterCount < prev.filterCount;
+    const focusRemoved = viewRestrictions.focusCount < prev.focusCount;
+
+    if (safeSelId && (searchCleared || pathCleared || filterRemoved || focusRemoved)) {
+      setTreeRevealKey((key) => key + 1);
+    }
+    prevViewRestrictions.current = viewRestrictions;
+  }, [safeSelId, viewRestrictions]);
+
   if (!result) {
     return (
       <div className="app app-empty">
@@ -426,6 +450,7 @@ export function App() {
             pathOnly={pathOnly}
             expandAll={expandAll}
             openIds={openIds}
+            revealKey={treeRevealKey}
             onToggle={toggle}
             onSelect={selectAndReveal}
             onFocusClass={addFocus}

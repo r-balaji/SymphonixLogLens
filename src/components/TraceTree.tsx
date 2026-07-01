@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useLayoutEffect, useMemo, useRef } from "react";
 import type { CallNode } from "../../shared/types.js";
 import { chipFor, meaningfulValues, subtreeTouches } from "../lib/tree.js";
 import { fmtDuration } from "../lib/format.js";
@@ -11,6 +11,7 @@ interface Props {
   pathOnly: boolean;
   expandAll: boolean;
   openIds: Set<string>;
+  revealKey: number;
   onToggle: (id: string) => void;
   onSelect: (id: string) => void;
   onFocusClass: (cls: string) => void;
@@ -31,6 +32,7 @@ function matches(n: CallNode, q: string): boolean {
 export function TraceTree(props: Props) {
   const { root, query } = props;
   const q = query.trim().toLowerCase();
+  const treeRef = useRef<HTMLDivElement>(null);
 
   // Whether a node should appear given the path-only + search filters.
   const visibleDeep = useMemo(() => {
@@ -46,8 +48,14 @@ export function TraceTree(props: Props) {
     return fn;
   }, [props.pathOnly, q, root]);
 
+  useLayoutEffect(() => {
+    if (!props.selId || props.revealKey === 0) return;
+    const selectedRow = treeRef.current?.querySelector<HTMLElement>(".row.sel");
+    selectedRow?.scrollIntoView({ block: "center", inline: "nearest" });
+  }, [props.revealKey, props.selId]);
+
   return (
-    <div className="tree" role="tree">
+    <div className="tree" role="tree" ref={treeRef}>
       {visibleDeep(root) ? (
         <Row {...props} node={root} q={q} visibleDeep={visibleDeep} heatTotal={props.total} />
       ) : (
@@ -69,6 +77,7 @@ function Row({
   pathOnly,
   expandAll,
   openIds,
+  revealKey,
   onToggle,
   onSelect,
   onFocusClass,
@@ -138,7 +147,7 @@ function Row({
           {node.children.filter(visibleDeep).map((c) => (
             <Row
               key={c.id}
-              {...{ total, selId, q, pathOnly, expandAll, openIds, onToggle, onSelect, onFocusClass, visibleDeep, heatTotal }}
+              {...{ total, selId, q, pathOnly, expandAll, openIds, revealKey, onToggle, onSelect, onFocusClass, visibleDeep, heatTotal }}
               root={node}
               query={q}
               node={c}
